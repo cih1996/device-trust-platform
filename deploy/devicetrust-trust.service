@@ -1,0 +1,16 @@
+[Unit]
+Description=Refresh DeviceTrust official attestation trust
+Wants=network-online.target
+After=network-online.target
+[Service]
+Type=oneshot
+User=devicetrust
+Group=devicetrust
+ExecStart=/opt/devicetrust/current/bin/trust-sync -out /var/lib/devicetrust/trust
+StateDirectory=devicetrust
+StateDirectoryMode=0700
+UMask=0077
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true

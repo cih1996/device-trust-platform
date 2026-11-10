@@ -1,0 +1,20 @@
+[Unit]
+Description=DeviceTrust isolated demo business
+After=network-online.target devicetrust-platform.service nginx.service
+Wants=network-online.target
+[Service]
+User=devicetrust
+Group=devicetrust
+WorkingDirectory=/opt/devicetrust/current
+ExecStart=/opt/devicetrust/current/bin/demo-business -config /var/lib/devicetrust/demo.json -addr 127.0.0.1:18192 -tls-cert= -tls-key= -trusted-loopback-proxy
+Restart=on-failure
+RestartSec=3
+StateDirectory=devicetrust
+StateDirectoryMode=0700
+UMask=0077
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+[Install]
+WantedBy=multi-user.target

@@ -24,13 +24,15 @@
 </button>
 <div class="aside-bottom">
 <span class="dot">
-</span> 本地工作台<button @click="logout">退出登录 ↗</button>
+</span> 工作台在线<button @click="logout">退出登录 ↗</button>
 </div>
 </aside>
   <main>
 <header>
 <span>{{sectionNames[section]}}</span>
 <div class="toolbar">
+<a class="quiet" href="https://devicetrust.lingzidev.com/docs/" target="_blank" rel="noopener">接入文档 ↗</a>
+<a class="quiet" href="https://devicetrust.lingzidev.com/#downloads" target="_blank" rel="noopener">SDK 下载 ↗</a>
 <select v-model="selected" @change="reload" aria-label="选择应用">
 <option value="">全部应用</option>
 <option v-for="app in apps" :value="app.id">{{app.name}}</option>

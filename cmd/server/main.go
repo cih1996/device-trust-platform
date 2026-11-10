@@ -21,6 +21,7 @@ func main() {
 	revocations := flag.String("attestation-revocations", "", "fresh Google revocation snapshot JSON")
 	adminFile := flag.String("admin-token-file", "", "private file containing administrator token")
 	adminAddr := flag.String("admin-addr", "", "optional loopback-only HTTP console")
+	proxy := flag.Bool("trusted-loopback-proxy", false, "trust X-Real-IP from local Nginx")
 	flag.Parse()
 	token := os.Getenv("DTP_ADMIN_TOKEN")
 	if *adminFile != "" {
@@ -61,6 +62,9 @@ func main() {
 		}
 	}
 	handler := (&platform.Server{Store: store, AdminToken: token, Trust: trust}).Handler(*web)
+	if *proxy {
+		handler = platform.TrustLoopbackProxy(handler)
+	}
 	if *adminAddr != "" {
 		host, _, err := net.SplitHostPort(*adminAddr)
 		if err != nil {
