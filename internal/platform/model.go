@@ -25,6 +25,7 @@ type Report struct {
 }
 type Event struct {
 	ID             string    `json:"id"`
+	BusinessID     string    `json:"eventId,omitempty"`
 	AppID          string    `json:"appId"`
 	ReportID       string    `json:"reportId"`
 	AccountID      string    `json:"accountId"`

@@ -150,7 +150,7 @@ func (s *Server) report(w http.ResponseWriter, r *http.Request) {
 	}
 	for name, signal := range input.Signals {
 		switch signal.Status {
-		case "available", "permission_denied", "unavailable", "disabled":
+		case "available", "permission_denied", "unavailable", "disabled", "error":
 		default:
 			fail(w, 400, fmt.Errorf("invalid signal status: %s", name))
 			return
@@ -170,13 +170,7 @@ func (s *Server) report(w http.ResponseWriter, r *http.Request) {
 	reply(w, 201, map[string]string{"reportId": report.ID})
 }
 func (s *Server) event(w http.ResponseWriter, r *http.Request) {
-	var input struct {
-		AppID     string `json:"appId"`
-		ReportID  string `json:"reportId"`
-		AccountID string `json:"accountId"`
-		Type      string `json:"type"`
-		ClientIP  string `json:"clientIp"`
-	}
+	var input eventInput
 	if err := decode(w, r, &input); err != nil {
 		fail(w, 400, err)
 		return
@@ -189,14 +183,44 @@ func (s *Server) event(w http.ResponseWriter, r *http.Request) {
 		fail(w, 401, errors.New("invalid application key"))
 		return
 	}
-	if input.ReportID == "" || input.AccountID == "" || input.Type == "" {
-		fail(w, 400, errors.New("reportId, accountId and type required"))
+	if input.BusinessID == "" || input.ReportID == "" || input.AccountID == "" || input.Type == "" {
+		fail(w, 400, errors.New("eventId, reportId, accountId and type required"))
 		return
 	}
 	if input.ClientIP != "" && net.ParseIP(input.ClientIP) == nil {
 		fail(w, 400, errors.New("invalid clientIp"))
 		return
 	}
+	id := digest(a.ID + ":" + input.BusinessID)
+	var existing Event
+	if err := s.Store.get("events", id, &existing); err == nil {
+		replay(w, existing, input)
+		return
+	} else if !errors.Is(err, os.ErrNotExist) {
+		fail(w, 500, err)
+		return
+	}
+	s.createEvent(w, input, a, id)
+}
+
+type eventInput struct {
+	BusinessID string `json:"eventId"`
+	AppID      string `json:"appId"`
+	ReportID   string `json:"reportId"`
+	AccountID  string `json:"accountId"`
+	Type       string `json:"type"`
+	ClientIP   string `json:"clientIp"`
+}
+
+func replay(w http.ResponseWriter, existing Event, input eventInput) {
+	if existing.ReportID != input.ReportID || existing.AccountID != input.AccountID || existing.Type != input.Type || existing.ClientIP != input.ClientIP {
+		fail(w, 409, errors.New("eventId already used with different event data"))
+		return
+	}
+	reply(w, 200, existing)
+}
+
+func (s *Server) createEvent(w http.ResponseWriter, input eventInput, a App, id string) {
 	var report Report
 	if err := s.Store.get("reports", input.ReportID, &report); err != nil {
 		if errors.Is(err, os.ErrNotExist) {
@@ -219,9 +243,17 @@ func (s *Server) event(w http.ResponseWriter, r *http.Request) {
 		fail(w, 500, err)
 		return
 	}
-	e := Event{ID: token(), AppID: a.ID, ReportID: report.ID, AccountID: input.AccountID, Type: input.Type, ClientIP: input.ClientIP, InstallationID: report.InstallationID, ReceivedAt: time.Now().UTC()}
+	e := Event{ID: id, BusinessID: input.BusinessID, AppID: a.ID, ReportID: report.ID, AccountID: input.AccountID, Type: input.Type, ClientIP: input.ClientIP, InstallationID: report.InstallationID, ReceivedAt: time.Now().UTC()}
 	evaluate(&e, report, history)
-	if err = s.Store.put("events", e.ID, e); err != nil {
+	if err = s.Store.create("events", e.ID, e); errors.Is(err, os.ErrExist) {
+		var saved Event
+		if err = s.Store.get("events", id, &saved); err != nil {
+			fail(w, 500, err)
+			return
+		}
+		replay(w, saved, input)
+		return
+	} else if err != nil {
 		fail(w, 500, err)
 		return
 	}

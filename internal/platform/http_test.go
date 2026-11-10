@@ -55,11 +55,12 @@ func TestApplicationReportEventLifecycle(t *testing.T) {
 	if saved.ObservedIP != "192.0.2.1" {
 		t.Fatalf("untrusted forwarded IP used: %s", saved.ObservedIP)
 	}
-	event := map[string]any{"appId": other, "reportId": rid, "accountId": "u1", "type": "login"}
+	event := map[string]any{"eventId": "cross-app", "appId": other, "reportId": rid, "accountId": "u1", "type": "login"}
 	request(t, h, "POST", "/v1/events", otherKey, event, 403)
 	event["appId"] = id
 	request(t, h, "POST", "/v1/events", "wrong", event, 401)
 	for _, account := range []string{"u1", "u2", "u3", "u4"} {
+		event["eventId"] = "login-" + account
 		event["accountId"] = account
 		e := request(t, h, "POST", "/v1/events", key, event, 201)
 		if account == "u4" && e["decision"] != "review" {
@@ -68,6 +69,7 @@ func TestApplicationReportEventLifecycle(t *testing.T) {
 	}
 	newKey := request(t, h, "POST", "/api/apps/"+id+"/rotate-key", admin, map[string]any{}, 200)["key"].(string)
 	request(t, h, "POST", "/v1/events", key, event, 401)
+	event["eventId"] = "after-rotation"
 	request(t, h, "POST", "/v1/events", newKey, event, 201)
 	// Reopen storage to verify persistence and separation, not just in-memory behavior.
 	reopened, err := Open(root)
@@ -138,5 +140,5 @@ func TestInputAndReportFreshness(t *testing.T) {
 	request(t, h, "POST", "/v1/reports", "", map[string]any{"appId": "app", "package": "example", "installationId": "id", "signals": map[string]Signal{"wifi": {Status: "made_up"}}}, 400)
 	p := Report{ID: "old", AppID: "app", InstallationID: "id"}
 	store.put("reports", p.ID, p)
-	request(t, h, "POST", "/v1/events", "secret", map[string]string{"appId": "app", "reportId": "old", "accountId": "u", "type": "login"}, 400)
+	request(t, h, "POST", "/v1/events", "secret", map[string]string{"eventId": "expired", "appId": "app", "reportId": "old", "accountId": "u", "type": "login"}, 400)
 }

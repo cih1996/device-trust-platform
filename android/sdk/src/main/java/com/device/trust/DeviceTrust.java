@@ -75,8 +75,8 @@ public final class DeviceTrust {
             if (operator == null || operator.isEmpty()) status(signals,"operator","unavailable","no registered network operator");
             else available(signals,"operator",operator);
         } else status(signals,"operator","unavailable","telephony not supported");
-        for (String name : new String[]{"cell", "cellSignal", "bssid", "location", "installedApps", "bluetoothMac", "routerMac", "attestation"}) {
-            status(signals,name,"disabled","not collected in sdk 0.1");
+        for (String name : new String[]{"cell", "wifiRssi", "bssid", "location", "installedApps", "bluetoothMac", "routerMac", "attestation"}) {
+            status(signals,name,"disabled","not enabled");
         }
         return new JSONObject().put("appId", options.appId).put("installationId",id).put("package",app.getPackageName()).put("signals",signals);
     }
@@ -109,10 +109,10 @@ public final class DeviceTrust {
             return new JSONObject(response).getString("reportId");
         } finally { connection.disconnect(); }
     }
-    private static void available(JSONObject signals,String name,Object value) throws JSONException {
+    static void available(JSONObject signals,String name,Object value) throws JSONException {
         signals.put(name,new JSONObject().put("status","available").put("value",value));
     }
-    private static void status(JSONObject signals,String name,String state,String reason) throws JSONException {
+    static void status(JSONObject signals,String name,String state,String reason) throws JSONException {
         signals.put(name,new JSONObject().put("status",state).put("reason",reason));
     }
 }

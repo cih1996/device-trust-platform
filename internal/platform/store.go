@@ -31,6 +31,16 @@ func randomBytes(n int) []byte {
 func digest(v string) string                 { h := sha256.Sum256([]byte(v)); return hex.EncodeToString(h[:]) }
 func (s *Store) path(kind, id string) string { return filepath.Join(s.Root, kind, digest(id)+".json") }
 func (s *Store) put(kind, id string, v any) error {
+	return s.publish(kind, id, v, false)
+}
+
+// A hard link publishes a complete immutable record only if its ID is absent.
+// The temporary file and destination stay on the same filesystem.
+func (s *Store) create(kind, id string, v any) error {
+	return s.publish(kind, id, v, true)
+}
+
+func (s *Store) publish(kind, id string, v any, exclusive bool) error {
 	b, err := json.Marshal(v)
 	if err != nil {
 		return err
@@ -50,6 +60,9 @@ func (s *Store) put(kind, id string, v any) error {
 	}
 	if err = f.Close(); err != nil {
 		return err
+	}
+	if exclusive {
+		return os.Link(f.Name(), s.path(kind, id))
 	}
 	return os.Rename(f.Name(), s.path(kind, id))
 }

@@ -1,13 +1,13 @@
 import { createApp, ref, computed } from 'vue/dist/vue.esm-bundler.js'
 import './style.css'
+import { signalValue } from './signals.js'
 
 createApp({
  setup() {
   const token=ref(''), signedIn=ref(false), apps=ref([]), overview=ref({stats:{events:0,devices:0,review:0},events:[]})
   const selected=ref(''), section=ref('overview'), error=ref(''), busy=ref(false), name=ref(''), packageName=ref(''), newKey=ref(''), query=ref(''), detail=ref(null), device=ref(null)
   const sectionNames={overview:'风险概览',events:'风险事件',devices:'设备画像',apps:'应用管理'}
-  const signalNames={manufacturer:'制造商',model:'机型',sdkInt:'系统版本',securityPatch:'安全更新',buildFingerprint:'系统版本标识',debugger:'调试状态',emulatorHint:'模拟环境线索',vpn:'VPN 连接',transport:'网络连接',operator:'网络运营商',androidId:'应用设备标识',expectedPackage:'应用匹配',cell:'基站',cellSignal:'蜂窝信号',bssid:'无线接入点',location:'位置',installedApps:'已安装应用',bluetoothMac:'蓝牙地址',routerMac:'路由地址',attestation:'硬件证明'}
-  const statusNames={permission_denied:'未授权',unavailable:'暂不可用',disabled:'未开启'}
+  const signalNames={manufacturer:'制造商',model:'机型',sdkInt:'系统版本',securityPatch:'安全更新',buildFingerprint:'系统版本标识',debugger:'调试状态',emulatorHint:'模拟环境线索',vpn:'VPN 连接',transport:'网络连接',operator:'网络运营商',androidId:'应用设备标识',expectedPackage:'应用匹配',cell:'基站与信号',wifiRssi:'Wi-Fi 信号',bssid:'无线接入点',location:'位置',installedApps:'已安装应用',bluetoothMac:'蓝牙地址',routerMac:'路由地址',attestation:'硬件证明',rootBeerTestKeys:'测试版系统线索',rootBeerSuBinary:'提权程序线索',rootBeerMagiskBinary:'系统修改工具线索',rootBeerNativeSu:'原生提权程序线索',rootBeerVersion:'采集组件版本'}
   const reasons={debugger:'正在调试',emulator_hint:'模拟环境线索',vpn:'VPN 连接',package_mismatch:'应用不匹配',multiple_accounts_24h:'多账号关联',frequent_events_1m:'操作频繁'}
   const events=computed(()=>overview.value.events.filter(e=>[e.accountId,e.type,e.installationId].some(v=>v.includes(query.value))))
   async function api(path,method='GET',body) {
@@ -23,7 +23,6 @@ createApp({
   function logout(){token.value='';signedIn.value=false;newKey.value='';detail.value=null;device.value=null;apps.value=[];overview.value={stats:{events:0,devices:0,review:0},events:[]}}
   const appName=id=>apps.value.find(a=>a.id===id)?.name||id
   const formatTime=value=>new Date(value).toLocaleString('zh-CN',{hour12:false})
-  const signalValue=s=>s.status==='available'?(s.value===true?'是':s.value===false?'否':String(s.value)):statusNames[s.status]
   return {token,signedIn,apps,overview,selected,section,error,busy,name,packageName,newKey,query,detail,device,sectionNames,signalNames,signalValue,reasons,events,login,reload,create,rotate,logout,appName,formatTime}
  },
  template:`

@@ -1,4 +1,4 @@
-# 接入协议 0.1
+# 接入协议 0.2
 
 ## Android
 
@@ -24,9 +24,38 @@ val reportId = DeviceTrust.upload("https://测试服务域名/v1/reports", repor
 
 `includeAndroidId` 为显式字段开关。collect 是同步方法，会写入本地随机 ID，应同样放后台调用，并从一个集成入口调用。upload 拒绝主线程与 HTTP；返回原始 HTTP 状态与响应内容，不做自动重试和错误替换。开发用 HTTPS 入口由测试环境提供，不在 SDK 中关闭证书检查。宿主如撤回同意应停止调用，按自身数据治理流程删除已采集记录。后台删除功能尚未实现。
 
+### 可选网络位置模块
+
+需要时再添加 `sdk-environment-release.aar`。该模块额外声明 ACCESS_WIFI_STATE、ACCESS_COARSE_LOCATION、ACCESS_FINE_LOCATION；由宿主在前台按实际场景申请定位权限。模块不弹权限框，不请求后台定位。
+
+```java
+EnvironmentCollector.collect(context, report, consentGranted,
+    EnvironmentCollector.Collection.WIFI,
+    EnvironmentCollector.Collection.CELL,
+    EnvironmentCollector.Collection.LOCATION);
+```
+
+这一步放在基础 collect 之后、upload 之前。可只选一个采集组。Wi-Fi 包含 bssid / wifiRssi；cell 是缓存样本数组，含制式、注册状态、小区 ID、区域代码、dBm 与 ageMillis（LTE / GSM / WCDMA / NR）；location 包含坐标、精度、年龄与 mock 标记。未知测量或样本年龄为 null。其他制式保留类别并标为 unsupported。不会主动发起无线扫描或定位刷新；缓存可以为空或过期。
+
+权限缺失明确记 permission_denied。采集过程中权限变化或硬件 API 不支持时，逐组记录原始异常并继续其他采集组，完整堆栈输出 logcat。其他异常直接暴露给调用方。位置只收集当前系统启用 provider 的缓存，不保证得到新位置。
+
+### 可选 RootBeer 模块
+
+添加 `sdk-rootbeer-release.aar` 与固定依赖 `implementation 'com.scottyab:rootbeer-lib:0.1.2'`；离线 libs 接入则添加发布包中的 rootbeer-lib-0.1.2.aar。Android 库 AAR 不会自动内嵌这些依赖，基础 sdk-release.aar 仍需同时引入。
+
+```java
+RootBeerCollector.collect(context, report, consentGranted);
+```
+
+上报 rootBeerTestKeys、rootBeerSuBinary、rootBeerMagiskBinary、rootBeerNativeSu 与 rootBeerVersion。原生库加载失败保留 error 状态、原始错误和 logcat 堆栈。现有评分暂不使用这些新字段。授权文本与实际复用范围见 open-source-review.md。
+
+### 独立采集测试 App
+
+`:sample:assembleDebug` 生成 `sample/build/outputs/apk/debug/sample-debug.apk`，发布包也提供该 APK。测试包名 `com.device.trust.sample`，创建用于该包名的测试应用，填入应用 ID。选择采集项并允许本次采集后执行；需要位置时先点授权。HTTPS 上报地址可留空，此时只显示本地报告。该 App 使用本机构建生成的 debug 签名，只用于测试设备，尚未实际安装运行。
+
 ## 设备报告
 
-`POST /v1/reports` 是公开采集接口，只接收风险线索，不提供认证。appId 为公开标识。信号状态为 available / permission_denied / unavailable / disabled；只有 available 附值。SDK 0.1 的基础字段为 manufacturer、model、sdkInt、securityPatch、buildFingerprint、debugger、emulatorHint、transport、vpn、operator；androidId 可选。敏感和未实现模块明确 disabled。
+`POST /v1/reports` 是公开采集接口，只接收风险线索，不提供认证。appId 为公开标识。信号状态为 available / permission_denied / unavailable / disabled / error；只有 available 附值，error 保留原始 reason。基础字段为 manufacturer、model、sdkInt、securityPatch、buildFingerprint、debugger、emulatorHint、transport、vpn、operator；androidId 可选。可选模块未启用时相应字段为 disabled。
 
 ```json
 {
@@ -48,6 +77,7 @@ val reportId = DeviceTrust.upload("https://测试服务域名/v1/reports", repor
 
 ```json
 {
+  "eventId":"业务系统稳定事件号，如login-100001",
   "appId":"应用ID",
   "reportId":"SDK返回的报告ID",
   "accountId":"业务侧账号代号",
@@ -58,11 +88,13 @@ val reportId = DeviceTrust.upload("https://测试服务域名/v1/reports", repor
 
 clientIp 可选，应由业务后端按自身可信代理规则确认，不能直接转发用户自报 IP。accountId 建议用业务内部代号，不传手机号等无关数据。
 
-返回 201，包含 id、appId、reportId、accountId、installationId、type、clientIp、receivedAt、score、decision、reasons、modelVersion。decision 为 observe 或 review。当前不自动阻断。
+首次创建返回 201，包含 id、eventId、appId、reportId、accountId、installationId、type、clientIp、receivedAt、score、decision、reasons、modelVersion。decision 为 observe 或 review。当前不自动阻断。
 
-规则 `rules-0.1`：调试 +15、简单模拟器线索 +20、VPN +5、包名不匹配 +30；同应用同 installationId 在 24h 内至少四个不同账号 +35，一分钟内已有至少十个事件 +35；总分封顶 100，达到 30 建议关注。规则分数尚未经实测校准。事件窗口使用服务器时间，跨应用不合并；并发请求按各自历史快照评估。业务重试会重复写事件，正式试点前需要加入业务事件 ID 幂等。
+eventId 必填，必须由业务服务端为一次真实业务事件生成并在重试时复用。同一应用内相同 eventId 与相同 reportId / accountId / type / clientIp 返回 200 与首次保存的完整结果（含原始时间与评分）；改变内容返回 409。不同应用可使用相同 eventId。已保存事件的重试不受报告后来过期影响，但仍校验当前应用密钥。不要为重试重新生成 eventId 或替换 reportId；新业务事件使用新 eventId。
 
-常见状态：400 请求或报告过期；401 凭据无效；403 跨应用报告；404 记录不存在；500 原始存储 / 解码错误。单次错误直接返回，批量调用方应逐项记录结果，继续其他请求。
+规则 `rules-0.1`：调试 +15、简单模拟器线索 +20、VPN +5、包名不匹配 +30；同应用同 installationId 在 24h 内至少四个不同账号 +35，一分钟内已有至少十个事件 +35；总分封顶 100，达到 30 建议关注。规则分数尚未经实测校准。事件窗口使用服务器时间，跨应用不合并；不同事件并发请求按各自历史快照评估，无法用作强事务的精确限额扣减。
+
+常见状态：400 请求或报告过期；401 凭据无效；403 跨应用报告；404 记录不存在；409 事件号内容冲突；500 原始存储 / 解码错误。单次错误直接返回，批量调用方应逐项记录结果，继续其他请求。
 
 ## 管理接口
 
