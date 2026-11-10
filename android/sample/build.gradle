@@ -3,7 +3,8 @@ android {
     namespace 'com.device.trust.sample'
     compileSdk 35
     defaultConfig {
-        applicationId 'com.device.trust.sample'; minSdk 24; targetSdk 35; versionCode 5; versionName '0.4.1'
+        applicationId 'com.device.trust.sample'; minSdk 24; targetSdk 35; versionCode 6; versionName '0.5.0'
+        testInstrumentationRunner 'com.device.trust.sample.DeviceTrustInstrumentation'
         def pin = providers.environmentVariable('DTP_DEMO_PIN').getOrElse('')
         if (pin.isEmpty()) throw new GradleException('DTP_DEMO_PIN is required for the secured APK')
         def endpoint = providers.environmentVariable('DTP_DEMO_URL').getOrElse('https://localhost:9444')
@@ -11,6 +12,7 @@ android {
         buildConfigField 'String[]', 'SERVER_PINS', 'new String[]{"' + pin + '"}'
     }
     buildFeatures { buildConfig true }
+    testBuildType 'release'
     signingConfigs {
         testRelease {
             storeFile file(providers.environmentVariable('DTP_RELEASE_KEYSTORE').getOrElse('../../work/signing/release.jks'))

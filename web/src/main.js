@@ -1,15 +1,17 @@
 import { createApp, ref, computed } from 'vue/dist/vue.esm-bundler.js'
 import './style.css'
 import template from './template.html?raw'
+import ResourcePanel from './resource-panel.js'
 import { signalValue } from './signals.js'
 import { sceneNames, actionNames, reviewNames, riskReasons, fieldNames, outcomeNames } from './risk-display.js'
 
 createApp({
+ components:{ResourcePanel},
  setup() {
   const token=ref(''), signedIn=ref(false), apps=ref([]), overview=ref({stats:{events:0,devices:0,review:0},events:[]})
   const selected=ref(''), section=ref('overview'), error=ref(''), busy=ref(false), name=ref(''), packageName=ref(''), newKey=ref(''), query=ref(''), detail=ref(null), device=ref(null)
   const sectionNames={overview:'风险概览',events:'风险事件',devices:'设备画像',apps:'应用管理'}
-  const signalNames={manufacturer:'制造商',model:'机型',sdkInt:'系统版本',securityPatch:'安全更新',buildFingerprint:'系统版本标识',debugger:'调试状态',emulatorHint:'模拟环境线索',vpn:'VPN 连接',transport:'网络连接',operator:'网络运营商',androidId:'应用设备标识',expectedPackage:'应用匹配',cell:'基站与信号',wifiRssi:'Wi-Fi 信号',bssid:'无线接入点',location:'位置',installedApps:'已安装应用',bluetoothMac:'蓝牙地址',routerMac:'路由地址',attestation:'硬件证明',rootBeerTestKeys:'测试版系统线索',rootBeerSuBinary:'提权程序线索',rootBeerMagiskBinary:'系统修改工具线索',rootBeerNativeSu:'原生提权程序线索',rootBeerVersion:'采集组件版本'}
+  const signalNames={resourceJava:'设备参数',resourceNative:'底层参数',sensors:'传感器',systemPackages:'系统应用',networkSnapshot:'网络状态',manufacturer:'制造商',model:'机型',sdkInt:'系统版本',securityPatch:'安全更新',buildFingerprint:'系统版本标识',debugger:'调试状态',emulatorHint:'模拟环境线索',vpn:'VPN 连接',transport:'网络连接',operator:'网络运营商',androidId:'应用设备标识',expectedPackage:'应用匹配',cell:'基站与信号',wifiRssi:'Wi-Fi 信号',bssid:'无线接入点',location:'位置',installedApps:'已安装应用',bluetoothMac:'蓝牙地址',routerMac:'路由地址',attestation:'硬件证明',rootBeerTestKeys:'测试版系统线索',rootBeerSuBinary:'提权程序线索',rootBeerMagiskBinary:'系统修改工具线索',rootBeerNativeSu:'原生提权程序线索',rootBeerVersion:'采集组件版本'}
   const reasons=riskReasons
   const scenario=ref(''),policyApp=ref(null),policyDraft=ref(null),reviewNote=ref('')
   const securityApp=ref(null),securityDraft=ref(null),signerText=ref(''),resolutionId=ref('')

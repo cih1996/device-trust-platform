@@ -19,6 +19,7 @@ type Server struct {
 	Store      *Store
 	AdminToken string
 	Trust      *AttestationVerifier
+	Resources  *ResourceEngine
 }
 
 func (s *Server) Handler(web string) http.Handler {
@@ -85,6 +86,15 @@ func (s *Server) admin(w http.ResponseWriter, r *http.Request) {
 		fail(w, 401, errors.New("请重新输入管理口令"))
 		return
 	}
+	if r.URL.Path == "/api/resources" && r.Method == "GET" {
+		if s.Resources == nil {
+			reply(w, 200, map[string]any{"configured": false})
+			return
+		}
+		e := s.Resources
+		reply(w, 200, map[string]any{"configured": true, "version": e.Catalog.Version, "devices": len(e.Catalog.Devices), "cells": len(e.Catalog.Cells), "regions": len(e.Catalog.Regions), "ipv4": e.V4 != nil, "ipv6": e.V6 != nil})
+		return
+	}
 	path := strings.TrimPrefix(r.URL.Path, "/api/")
 	switch {
 	case path == "apps" && r.Method == "GET":
@@ -124,7 +134,7 @@ func (s *Server) admin(w http.ResponseWriter, r *http.Request) {
 		}
 		key := token()
 		a := App{ID: token(), Name: input.Name, Package: input.Package, KeyHash: digest(key), CreatedAt: time.Now().UTC()}
-		if err := s.Store.put("security", a.ID, AppSecurity{RequireSignedReports: true, MaxEnrollmentHours: 24, SigningDigests: []string{}}); err != nil {
+		if err := s.Store.put("security", a.ID, AppSecurity{RequireSignedReports: true, RequireRequestBinding: true, MaxEnrollmentHours: 24, SigningDigests: []string{}}); err != nil {
 			fail(w, 500, err)
 			return
 		}
@@ -322,6 +332,8 @@ func (s *Server) createEvent(w http.ResponseWriter, input eventInput, a App, id 
 	}
 	e := Event{ID: id, BusinessID: input.BusinessID, AppID: a.ID, ReportID: report.ID, AccountID: input.AccountID, Type: input.Type, ClientIP: input.ClientIP, InstallationID: report.InstallationID, Context: input.Context, ReceivedAt: time.Now().UTC()}
 	e.ReportProof = report.Proof
+	e.DeviceID = report.DeviceID
+	e.Resources = report.Resources
 	evaluateBusiness(&e, report, history, outcomes, p)
 	if err = s.Store.create("events", e.ID, e); errors.Is(err, os.ErrExist) {
 		var saved Event

@@ -120,12 +120,15 @@ OBF static jboolean pinMatches(JNIEnv* env,jclass,jbyteArray digest,jbyteArray e
     return difference==0?JNI_TRUE:JNI_FALSE;
 }
 
+#include "resources.inc"
+
 extern "C" JNIEXPORT jint JNICALL JNI_OnLoad(JavaVM* vm,void*) {
     JNIEnv* env=nullptr;if(vm->GetEnv((void**)&env,JNI_VERSION_1_6)!=JNI_OK)return JNI_ERR;
     jclass cls=env->FindClass("com/device/trust/secure/NativeFrame");if(!cls)return JNI_ERR;
     JNINativeMethod methods[]={
         {(char*)"protect",(char*)"(I[B[B[B[B[BLjava/security/PrivateKey;)[B",(void*)protect},
-        {(char*)"pinMatches",(char*)"([B[B)Z",(void*)pinMatches}
+        {(char*)"pinMatches",(char*)"([B[B)Z",(void*)pinMatches},
+        {(char*)"resources",(char*)"()Ljava/lang/String;",(void*)resources}
     };
-    return env->RegisterNatives(cls,methods,2)==0?JNI_VERSION_1_6:JNI_ERR;
+    return env->RegisterNatives(cls,methods,3)==0?JNI_VERSION_1_6:JNI_ERR;
 }

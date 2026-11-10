@@ -19,11 +19,12 @@ import (
 )
 
 type AppSecurity struct {
-	RequireSignedReports bool     `json:"requireSignedReports"`
-	RequireHardware      bool     `json:"requireHardware"`
-	SigningDigests       []string `json:"signingDigests"`
-	MinimumOSPatch       int      `json:"minimumOsPatch"`
-	MaxEnrollmentHours   int      `json:"maxEnrollmentHours"`
+	RequireRequestBinding bool     `json:"requireRequestBinding"`
+	RequireSignedReports  bool     `json:"requireSignedReports"`
+	RequireHardware       bool     `json:"requireHardware"`
+	SigningDigests        []string `json:"signingDigests"`
+	MinimumOSPatch        int      `json:"minimumOsPatch"`
+	MaxEnrollmentHours    int      `json:"maxEnrollmentHours"`
 }
 
 var errEnrollmentExpired = errors.New("device enrollment expired; enroll a new key")
@@ -82,17 +83,18 @@ func (s *Server) saveSecurity(w http.ResponseWriter, r *http.Request, appID stri
 }
 
 type Challenge struct {
-	ID              string          `json:"id"`
-	AppID           string          `json:"appId"`
-	EventID         string          `json:"eventId"`
-	AccountID       string          `json:"accountId"`
-	Type            string          `json:"type"`
-	Context         BusinessContext `json:"context"`
-	ClientIP        string          `json:"clientIp"`
-	KeyID           string          `json:"keyId"`
-	Nonce           []byte          `json:"nonce"`
-	ServerPublicKey []byte          `json:"serverPublicKey"`
-	ExpiresAt       time.Time       `json:"expiresAt"`
+	HardwareRequired bool            `json:"hardwareRequired"`
+	ID               string          `json:"id"`
+	AppID            string          `json:"appId"`
+	EventID          string          `json:"eventId"`
+	AccountID        string          `json:"accountId"`
+	Type             string          `json:"type"`
+	Context          BusinessContext `json:"context"`
+	ClientIP         string          `json:"clientIp"`
+	KeyID            string          `json:"keyId"`
+	Nonce            []byte          `json:"nonce"`
+	ServerPublicKey  []byte          `json:"serverPublicKey"`
+	ExpiresAt        time.Time       `json:"expiresAt"`
 }
 type storedChallenge struct {
 	Challenge
@@ -161,6 +163,10 @@ func (s *Server) challenge(w http.ResponseWriter, r *http.Request) {
 		fail(w, 500, err)
 		return
 	}
+	if (security.RequireRequestBinding || input.Context.RequestHash != "") && !validRequestHash(input.Context.RequestHash) {
+		fail(w, 400, errRequestBinding)
+		return
+	}
 	if input.KeyID != "" {
 		if _, _, err = s.activeKey(app, input.KeyID, security); err != nil {
 			if errors.Is(err, errEnrollmentExpired) || errors.Is(err, errHardwareUpgrade) {
@@ -182,6 +188,7 @@ func (s *Server) challenge(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	challenge := Challenge{ID: token(), AppID: app.ID, EventID: input.EventID, AccountID: input.AccountID, Type: input.Type, Context: input.Context, ClientIP: input.ClientIP, KeyID: input.KeyID, Nonce: randomBytes(32), ServerPublicKey: public, ExpiresAt: time.Now().UTC().Add(3 * time.Minute)}
+	challenge.HardwareRequired = security.RequireHardware
 	if err = s.Store.create("challenges", challenge.ID, storedChallenge{challenge, private.Bytes()}); err != nil {
 		fail(w, 500, err)
 		return
@@ -210,7 +217,7 @@ func (s *Server) activeKey(app App, id string, security AppSecurity) (deviceKey,
 	if accepted.KeyID != id {
 		return key, hardwareProof{}, errors.New("device enrollment was not accepted")
 	}
-	if time.Since(key.EnrolledAt) > time.Duration(security.MaxEnrollmentHours)*time.Hour {
+	if (security.RequireHardware || key.Proof.Level == "tee" || key.Proof.Level == "strongbox") && time.Since(key.EnrolledAt) > time.Duration(security.MaxEnrollmentHours)*time.Hour {
 		return key, hardwareProof{}, errEnrollmentExpired
 	}
 	proof := key.Proof
@@ -350,6 +357,19 @@ func (s *Server) secure(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	report := Report{ID: digest("secure:" + challenge.ID), AppID: app.ID, InstallationID: "key:" + key.ID, Package: app.Package, Signals: input.Signals, ObservedIP: ip, ReceivedAt: time.Now().UTC(), Proof: &ReportProof{KeyID: key.ID, Level: proof.Level, ChallengeID: challenge.ID, EventID: challenge.EventID, PayloadHash: digest(string(payload)), VerifiedAt: time.Now().UTC(), EnrolledAt: key.Proof.VerifiedAt}}
+	deviceID, err := s.registerDevice(app.ID, key.ID)
+	if err != nil {
+		fail(w, 500, err)
+		return
+	}
+	report.DeviceID = deviceID
+	if s.Resources != nil {
+		report.Resources, err = s.Resources.Assess(report)
+		if err != nil {
+			fail(w, 500, err)
+			return
+		}
+	}
 	if err = s.Store.create("reports", report.ID, report); errors.Is(err, os.ErrExist) {
 		var old Report
 		if err = s.Store.get("reports", report.ID, &old); err != nil {
@@ -360,13 +380,13 @@ func (s *Server) secure(w http.ResponseWriter, r *http.Request) {
 			fail(w, 409, errors.New("challenge already used for another report"))
 			return
 		}
-		reply(w, 200, map[string]string{"reportId": old.ID, "keyId": key.ID, "proofLevel": old.Proof.Level})
+		reply(w, 200, map[string]string{"reportId": old.ID, "deviceId": deviceID, "keyId": key.ID, "proofLevel": old.Proof.Level})
 		return
 	} else if err != nil {
 		fail(w, 500, err)
 		return
 	}
-	reply(w, 201, map[string]string{"reportId": report.ID, "keyId": key.ID, "proofLevel": proof.Level})
+	reply(w, 201, map[string]string{"reportId": report.ID, "deviceId": deviceID, "keyId": key.ID, "proofLevel": proof.Level})
 }
 func (s *Server) enroll(w http.ResponseWriter, frame secureFrame, challenge storedChallenge, app App, security AppSecurity) {
 	if challenge.KeyID != "" {

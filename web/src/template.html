@@ -210,6 +210,7 @@
 <dd>{{appName(device.appId)}}</dd>
 <dt>设备</dt>
 <dd>{{device.installationId}}</dd>
+<dt v-if="device.latestReport.deviceId">设备 ID</dt><dd v-if="device.latestReport.deviceId">{{device.latestReport.deviceId}}</dd>
 <dt>首次出现</dt>
 <dd>{{formatTime(device.firstSeen)}}</dd>
 <dt>最近出现</dt>
@@ -221,6 +222,7 @@
 </dl>
 <button v-if="device.latestReport.proof" class="quiet" @click="revokeDevice" :disabled="busy">停用设备密钥</button>
 <h3>最近设备信息</h3>
+<resource-panel :assessment="device.latestReport.resources"></resource-panel>
 <dl>
 <template v-for="(s,key) in device.latestReport.signals">
 <dt>{{signalNames[key]||key}}</dt>
@@ -264,6 +266,7 @@
 </template>
 </dl>
 <h3>风险线索</h3>
+<resource-panel :assessment="detail.resources"></resource-panel>
 <p v-if="!detail.reasons.length">暂未命中规则</p>
 <div v-if="detail.hits" v-for="hit in detail.hits" class="reason">{{reasons[hit.code]||hit.code}}<small v-if="hit.threshold">命中 {{hit.observed}} · 阈值 {{hit.threshold}}</small>
 </div>
@@ -284,5 +287,5 @@
 <p v-if="error" class="error" role="alert">{{error}}</p>
 </section>
 </div>
-<div v-if="securityApp" class="overlay" @click.self="securityApp=null"><section class="drawer"><button class="close quiet" @click="securityApp=null" aria-label="关闭接入保护">×</button><span class="eyebrow">APP PROTECTION</span><h2>{{securityApp.name}} · 接入保护</h2><form class="policy-form" @submit.prevent="saveSecurity"><label class="check-row"><input type="checkbox" v-model="securityDraft.requireSignedReports">签名上报</label><label class="check-row"><input type="checkbox" v-model="securityDraft.requireHardware">硬件密钥验证</label><label>应用证书指纹<textarea v-model="signerText" rows="4" placeholder="每行一个 SHA-256 指纹"></textarea></label><label>设备验证有效期（小时）<input type="number" v-model.number="securityDraft.maxEnrollmentHours" min="1" max="168" required></label><p v-if="error" class="error" role="alert">{{error}}</p><button :disabled="busy">保存接入保护</button></form></section></div>
+<div v-if="securityApp" class="overlay" @click.self="securityApp=null"><section class="drawer"><button class="close quiet" @click="securityApp=null" aria-label="关闭接入保护">×</button><span class="eyebrow">APP PROTECTION</span><h2>{{securityApp.name}} · 接入保护</h2><form class="policy-form" @submit.prevent="saveSecurity"><label class="check-row"><input type="checkbox" v-model="securityDraft.requireSignedReports">签名上报</label><label class="check-row"><input type="checkbox" v-model="securityDraft.requireHardware">硬件密钥验证</label><label class="check-row"><input type="checkbox" v-model="securityDraft.requireRequestBinding">业务请求绑定</label><label>应用证书指纹<textarea v-model="signerText" rows="4" placeholder="每行一个 SHA-256 指纹"></textarea></label><label>硬件证明有效期（小时）<input type="number" v-model.number="securityDraft.maxEnrollmentHours" min="1" max="168" required></label><p v-if="error" class="error" role="alert">{{error}}</p><button :disabled="busy">保存接入保护</button></form></section></div>
  </div>

@@ -108,7 +108,7 @@ func TestSecureEnrollmentBindingReplayAndEnforcement(t *testing.T) {
 	server := &Server{Store: store, AdminToken: "admin"}
 	h := server.Handler(t.TempDir())
 	request(t, h, "POST", "/v1/reports", "", map[string]any{"appId": "app", "package": app.Package, "installationId": "fake", "signals": map[string]Signal{"debugger": {Status: "available", Value: false}}}, 403)
-	context := BusinessContext{CampaignID: "campaign", RecipientID: "recipient"}
+	context := BusinessContext{CampaignID: "campaign", RecipientID: "recipient", RequestHash: HashBusinessRequest("POST", "/claim", "a", []byte(`{"campaign":"campaign","recipient":"recipient"}`))}
 	c := request(t, h, "POST", "/v1/challenges", "secret", map[string]any{"appId": "app", "eventId": "reward-1", "accountId": "a", "type": "reward", "context": context}, 201)
 	raw, _ := json.Marshal(c)
 	var challenge Challenge
@@ -120,11 +120,21 @@ func TestSecureEnrollmentBindingReplayAndEnforcement(t *testing.T) {
 	if enrolled["proofLevel"] != "signature_only" {
 		t.Fatal(enrolled)
 	}
+	var signatureKey deviceKey
+	store.get("device-keys", app.ID+":"+enrolled["keyId"].(string), &signatureKey)
+	signatureKey.EnrolledAt = time.Now().Add(-365 * 24 * time.Hour)
+	store.put("device-keys", app.ID+":"+signatureKey.ID, signatureKey)
+	if _, _, err := server.activeKey(app, signatureKey.ID, AppSecurity{MaxEnrollmentHours: 24}); err != nil {
+		t.Fatal("ordinary signing identity unexpectedly rotated", err)
+	}
 	signals := map[string]Signal{"debugger": {Status: "available", Value: true}, "emulatorHint": {Status: "available", Value: true}}
 	payload, _ := json.Marshal(reportInput{AppID: app.ID, Package: app.Package, InstallationID: "spoofed", Signals: signals})
 	frame := makeFrame(t, 2, challenge, key, payload)
 	uploaded := binaryRequest(t, h, frame, 201)
-	binaryRequest(t, h, frame, 200)
+	retried := binaryRequest(t, h, frame, 200)
+	if uploaded["deviceId"] == "" || uploaded["deviceId"] != retried["deviceId"] || uploaded["deviceId"] == enrolled["keyId"] {
+		t.Fatal("device registration identity unstable", uploaded, retried)
+	}
 	tampered := append([]byte{}, frame...)
 	tampered[142] ^= 1
 	binaryRequest(t, h, tampered, 403)
@@ -145,10 +155,13 @@ func TestSecureEnrollmentBindingReplayAndEnforcement(t *testing.T) {
 	if evaluated["mode"] != "enforce" || evaluated["action"] != "verify" {
 		t.Fatal(evaluated)
 	}
-	claim := map[string]string{"appId": "app", "eventId": "reward-1", "operationId": "operation-1"}
+	claim := map[string]string{"appId": "app", "eventId": "reward-1", "operationId": "operation-1", "requestHash": context.RequestHash}
 	request(t, h, "POST", "/v1/decisions/claim", "secret", claim, 403)
 	resolution := map[string]string{"resolutionId": "operator-1", "status": "approved", "note": "test approval"}
 	request(t, h, "POST", "/api/events/"+evaluated["id"].(string)+"/resolve", "admin", resolution, 201)
+	claim["requestHash"] = HashBusinessRequest("POST", "/claim", "a", []byte(`{"campaign":"campaign","recipient":"different"}`))
+	request(t, h, "POST", "/v1/decisions/claim", "secret", claim, 403)
+	claim["requestHash"] = context.RequestHash
 	permit := request(t, h, "POST", "/v1/decisions/claim", "secret", claim, 201)
 	request(t, h, "POST", "/v1/decisions/claim", "secret", claim, 200)
 	claim["operationId"] = "operation-2"

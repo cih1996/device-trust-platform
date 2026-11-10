@@ -110,18 +110,21 @@ public final class EnvironmentCollector {
             if (cell instanceof CellInfoLte) {
                 CellInfoLte value = (CellInfoLte) cell;
                 sample.put("technology","LTE");
+                if(Build.VERSION.SDK_INT>=28)sample.put("mcc",value.getCellIdentity().getMccString()).put("mnc",value.getCellIdentity().getMncString());
                 measurement(sample,"cellId",value.getCellIdentity().getCi());
                 measurement(sample,"areaCode",value.getCellIdentity().getTac());
                 measurement(sample,"dbm",value.getCellSignalStrength().getDbm());
             } else if (cell instanceof CellInfoGsm) {
                 CellInfoGsm value = (CellInfoGsm) cell;
                 sample.put("technology","GSM");
+                if(Build.VERSION.SDK_INT>=28)sample.put("mcc",value.getCellIdentity().getMccString()).put("mnc",value.getCellIdentity().getMncString());
                 measurement(sample,"cellId",value.getCellIdentity().getCid());
                 measurement(sample,"areaCode",value.getCellIdentity().getLac());
                 measurement(sample,"dbm",value.getCellSignalStrength().getDbm());
             } else if (cell instanceof CellInfoWcdma) {
                 CellInfoWcdma value = (CellInfoWcdma) cell;
                 sample.put("technology","WCDMA");
+                if(Build.VERSION.SDK_INT>=28)sample.put("mcc",value.getCellIdentity().getMccString()).put("mnc",value.getCellIdentity().getMncString());
                 measurement(sample,"cellId",value.getCellIdentity().getCid());
                 measurement(sample,"areaCode",value.getCellIdentity().getLac());
                 measurement(sample,"dbm",value.getCellSignalStrength().getDbm());
@@ -129,6 +132,7 @@ public final class EnvironmentCollector {
                 CellInfoNr value = (CellInfoNr) cell;
                 CellIdentityNr identity = (CellIdentityNr) value.getCellIdentity();
                 sample.put("technology","NR");
+                sample.put("mcc",identity.getMccString()).put("mnc",identity.getMncString());
                 measurement(sample,"cellId",identity.getNci());
                 measurement(sample,"areaCode",identity.getTac());
                 measurement(sample,"dbm",value.getCellSignalStrength().getDbm());
@@ -170,7 +174,7 @@ public final class EnvironmentCollector {
         JSONObject value = new JSONObject().put("latitude",latest.getLatitude()).put("longitude",latest.getLongitude())
                 .put("timeMillis",latest.getTime()).put("ageMillis",sampleAge(latest.getElapsedRealtimeNanos()))
                 .put("accuracyMeters",latest.hasAccuracy()?latest.getAccuracy():JSONObject.NULL)
-                .put("mock",Build.VERSION.SDK_INT >= 31 ? latest.isMock() : latest.isFromMockProvider());
+                .put("mock",Build.VERSION.SDK_INT >= 31 ? latest.isMock() : latest.isFromMockProvider()).put("provider",latest.getProvider()).put("coordinateSystem","WGS84");
         DeviceTrust.available(signals,"location",value);
     }
 }

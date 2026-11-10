@@ -16,6 +16,7 @@ type Resolution struct {
 	ReceivedAt time.Time `json:"receivedAt"`
 }
 type Claim struct {
+	RequestHash string    `json:"requestHash,omitempty"`
 	AppID       string    `json:"appId"`
 	EventID     string    `json:"eventId"`
 	OperationID string    `json:"operationId"`
@@ -59,6 +60,7 @@ func (s *Server) claim(w http.ResponseWriter, r *http.Request) {
 		AppID       string `json:"appId"`
 		EventID     string `json:"eventId"`
 		OperationID string `json:"operationId"`
+		RequestHash string `json:"requestHash"`
 	}
 	if err := decode(w, r, &input); err != nil {
 		fail(w, 400, err)
@@ -73,6 +75,17 @@ func (s *Server) claim(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var old Claim
+	security, err := s.security(event.AppID)
+	if err != nil {
+		fail(w, 500, err)
+		return
+	}
+	if security.RequireRequestBinding || event.Context.RequestHash != "" {
+		if !validRequestHash(event.Context.RequestHash) || input.RequestHash != event.Context.RequestHash {
+			fail(w, 403, errRequestBinding)
+			return
+		}
+	}
 	if err := s.Store.get("claims", event.ID, &old); err == nil {
 		if old.OperationID != input.OperationID {
 			fail(w, 409, errors.New("decision already claimed for another operation"))
@@ -131,7 +144,7 @@ func (s *Server) claim(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 	}
-	claim := Claim{event.AppID, event.ID, input.OperationID, token(), event.Mode, time.Now().UTC(), validFrom.Add(5 * time.Minute)}
+	claim := Claim{RequestHash: event.Context.RequestHash, AppID: event.AppID, EventID: event.ID, OperationID: input.OperationID, Token: token(), Mode: event.Mode, ReceivedAt: time.Now().UTC(), ExpiresAt: validFrom.Add(5 * time.Minute)}
 	if err := s.Store.create("claims", event.ID, claim); errors.Is(err, os.ErrExist) {
 		if err = s.Store.get("claims", event.ID, &old); err != nil {
 			fail(w, 500, err)

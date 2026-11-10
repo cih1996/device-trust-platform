@@ -22,6 +22,9 @@ func main() {
 	adminFile := flag.String("admin-token-file", "", "private file containing administrator token")
 	adminAddr := flag.String("admin-addr", "", "optional loopback-only HTTP console")
 	proxy := flag.Bool("trusted-loopback-proxy", false, "trust X-Real-IP from local Nginx")
+	catalog := flag.String("resource-catalog", "", "approved device, cell and region catalog JSON")
+	ipv4 := flag.String("ip-v4", "", "ip2region IPv4 XDB")
+	ipv6 := flag.String("ip-v6", "", "ip2region IPv6 XDB")
 	flag.Parse()
 	token := os.Getenv("DTP_ADMIN_TOKEN")
 	if *adminFile != "" {
@@ -61,7 +64,11 @@ func main() {
 			log.Fatal("TLS is required for non-loopback listeners")
 		}
 	}
-	handler := (&platform.Server{Store: store, AdminToken: token, Trust: trust}).Handler(*web)
+	resources, err := platform.LoadResources(*catalog, *ipv4, *ipv6)
+	if err != nil {
+		log.Fatal(err)
+	}
+	handler := (&platform.Server{Store: store, AdminToken: token, Trust: trust, Resources: resources}).Handler(*web)
 	if *proxy {
 		handler = platform.TrustLoopbackProxy(handler)
 	}

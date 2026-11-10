@@ -40,9 +40,11 @@ public final class SecureReporter {
         if(expected.isEmpty()) {
             if(!store.containsAlias(alias)) {
             KeyPairGenerator generator=KeyPairGenerator.getInstance(KeyProperties.KEY_ALGORITHM_EC,"AndroidKeyStore");
-            generator.initialize(new KeyGenParameterSpec.Builder(alias,KeyProperties.PURPOSE_SIGN)
+            KeyGenParameterSpec.Builder parameters=new KeyGenParameterSpec.Builder(alias,KeyProperties.PURPOSE_SIGN)
                     .setAlgorithmParameterSpec(new ECGenParameterSpec("secp256r1"))
-                    .setDigests(KeyProperties.DIGEST_SHA256).setAttestationChallenge(nonce).build());
+                    .setDigests(KeyProperties.DIGEST_SHA256);
+            if(challenge.getBoolean("hardwareRequired"))parameters.setAttestationChallenge(nonce);
+            generator.initialize(parameters.build());
             generator.generateKeyPair();
             }
         } else if(!expected.equals(keyId(context,appId)))throw new GeneralSecurityException("local device key differs from server challenge");
@@ -61,8 +63,12 @@ public final class SecureReporter {
         }
         byte[] payload=report.toString().getBytes(StandardCharsets.UTF_8);
         byte[] frame=NativeFrame.protect(2,challengeId,id,nonce,server,payload,privateKey);
-        return PinnedHttp.post(platform+"/v1/secure",pins,null,"application/octet-stream",frame);
+        JSONObject result=PinnedHttp.post(platform+"/v1/secure",pins,null,"application/octet-stream",frame);
+        String deviceId=result.getString("deviceId");
+        if(!prefs.edit().putString("deviceId:"+appId,deviceId).commit())throw new java.io.IOException("could not persist device ID");
+        return result;
     }
+    public static String deviceId(Context context,String appId){return context.getSharedPreferences("dtp_secure",Context.MODE_PRIVATE).getString("deviceId:"+appId,"");}
     private static String hex(byte[] bytes){char[] out=new char[bytes.length*2];char[] digits="0123456789abcdef".toCharArray();for(int i=0;i<bytes.length;i++){out[2*i]=digits[(bytes[i]&255)>>>4];out[2*i+1]=digits[bytes[i]&15];}return new String(out);}
     private static byte[] unhex(String text){if((text.length()&1)!=0)throw new IllegalArgumentException("invalid hex length");byte[] out=new byte[text.length()/2];for(int i=0;i<out.length;i++){int a=Character.digit(text.charAt(2*i),16),b=Character.digit(text.charAt(2*i+1),16);if(a<0||b<0)throw new IllegalArgumentException("invalid hex");out[i]=(byte)((a<<4)|b);}return out;}
 }

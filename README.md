@@ -1,4 +1,6 @@
-# Device Trust Platform · 知衡 0.4
+# Device Trust Platform · 知衡 0.5
+
+0.5 新增跨 Java/NDK 参数与系统应用签名比对、IPv4/IPv6 归属、带精度/时效约束的网络关联引擎、服务端设备 ID、业务请求摘要绑定和 Go 服务端执行关口。两路 ARM64 MI 8 SE 受测环境已运行发布 APK；硬件证明生成失败与实际网络样本缺口均保留。接入与验证范围见 [0.5 说明](docs/environment-0.5.md)。
 
 独立的 Android 设备风险 SDK、业务处置服务与管理后台，覆盖注册、营销、支付场景的设备线索和账号关联规则。
 

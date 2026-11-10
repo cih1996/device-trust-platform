@@ -212,8 +212,18 @@ func (d *DemoBusiness) prepare(w http.ResponseWriter, r *http.Request) {
 		fail(w, 500, err)
 		return
 	}
+	intent, err := json.Marshal(struct {
+		ID      string          `json:"id"`
+		Type    string          `json:"type"`
+		Context BusinessContext `json:"context"`
+	}{id, input.Type, context})
+	if err != nil {
+		fail(w, 500, err)
+		return
+	}
+	context.RequestHash = HashBusinessRequest("POST", "/demo/complete", session.AccountID, intent)
 	pending := demoPending{id, session.AccountID, input.Type, context, ip, time.Now().UTC()}
-	var challenge Challenge
+	var challenge json.RawMessage
 	if err = d.call("/v1/challenges", map[string]any{"appId": d.Config.AppID, "eventId": id, "accountId": session.AccountID, "type": input.Type, "context": context, "clientIp": ip, "keyId": input.KeyID}, &challenge); err != nil {
 		fail(w, 502, err)
 		return
@@ -275,7 +285,7 @@ func (d *DemoBusiness) complete(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var claim Claim
-	if err := d.call("/v1/decisions/claim", map[string]string{"appId": d.Config.AppID, "eventId": pending.EventID, "operationId": pending.EventID}, &claim); err != nil {
+	if err := d.call("/v1/decisions/claim", map[string]string{"appId": d.Config.AppID, "eventId": pending.EventID, "operationId": pending.EventID, "requestHash": pending.Context.RequestHash}, &claim); err != nil {
 		var upstream *upstreamError
 		if errors.As(err, &upstream) && upstream.Status == 403 {
 			var state struct {

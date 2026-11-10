@@ -68,6 +68,7 @@ public final class DeviceTrust {
         } else {
             available(signals,"vpn",caps.hasTransport(NetworkCapabilities.TRANSPORT_VPN));
             available(signals,"transport",caps.hasTransport(NetworkCapabilities.TRANSPORT_WIFI)?"wifi":caps.hasTransport(NetworkCapabilities.TRANSPORT_CELLULAR)?"cellular":caps.hasTransport(NetworkCapabilities.TRANSPORT_ETHERNET)?"ethernet":"other");
+            available(signals,"networkSnapshot",new JSONObject().put("wifi",caps.hasTransport(NetworkCapabilities.TRANSPORT_WIFI)).put("cellular",caps.hasTransport(NetworkCapabilities.TRANSPORT_CELLULAR)).put("vpn",caps.hasTransport(NetworkCapabilities.TRANSPORT_VPN)).put("validated",caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_VALIDATED)).put("metered",!caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_NOT_METERED)));
         }
         if (app.getPackageManager().hasSystemFeature(PackageManager.FEATURE_TELEPHONY)) {
             TelephonyManager tm = (TelephonyManager) app.getSystemService(Context.TELEPHONY_SERVICE);

@@ -2,6 +2,7 @@ export const sceneNames = {registration:'注册保护',marketing:'营销保护',
 export const actionNames = {observe:'观察',verify:'建议核验',hold:'建议暂缓'}
 export const reviewNames = {fraud:'确认异常',legitimate:'确认正常',unknown:'待确认'}
 export const riskReasons = {
+  build_native_mismatch:'机型参数矛盾',memory_source_mismatch:'内存读数矛盾',cpu_core_mismatch:'CPU 核心数矛盾',device_spec_mismatch:'机型规格不符',system_package_signer_mismatch:'系统应用签名异常',mock_location:'系统标记模拟位置',cell_gps_mismatch:'基站与定位矛盾',ip_gps_region_mismatch:'网络与定位区域不一致',
   debugger:'正在调试',emulator_hint:'模拟环境线索',vpn:'VPN 连接',package_mismatch:'应用不匹配',
   multiple_accounts_24h:'设备关联多个账号',frequent_events_1m:'设备操作频繁',root_indicators:'多项系统修改线索',
   account_device_changes:'账号频繁切换设备',registration_device_cluster:'同设备集中注册',registration_ip_cluster:'同网络集中注册',

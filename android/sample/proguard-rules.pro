@@ -1,1 +1,2 @@
 -keepattributes Signature,InnerClasses,EnclosingMethod
+-keep class com.device.trust.sample.ProbeBridge { public static *; }

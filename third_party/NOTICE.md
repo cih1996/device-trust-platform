@@ -1,5 +1,17 @@
 # Third-party notices
 
+## Ip2Region — offline IP data and XDB layout
+
+Pinned source: https://github.com/lionsoul2014/ip2region/tree/92e6a788d17c3185c852ca983124c3fca280f992
+
+Copyright 2022 The Ip2Region Authors. Apache-2.0 OR MIT; this project uses the Apache-2.0 option. Full license: licenses/ip2region-LICENSE.md. The XDB reader in internal/platform/ipregion.go adapts the upstream layout into an immutable-buffer reader. Official IPv4/IPv6 snapshots remain unmodified; hashes and build times are retained in the deployment manifests. No extra Go dependencies are introduced.
+
+## Natural Earth — coarse geographic regions
+
+Source: https://github.com/nvkelso/natural-earth-vector/blob/ca96624a56bd078437bca8184e78163e5039ad19/geojson/ne_50m_admin_1_states_provinces.geojson
+
+Public domain, https://www.naturalearthdata.com/about/terms-of-use/ . A subset of administrative region polygons is used for coarse, buffered comparison only. No geographic accuracy or precise device location is implied. Attribution: Made with Natural Earth.
+
 ## RootBeer 0.1.2 — optional Android collector
 
 Copyright (C) 2015, Scott Alexander-Bown, Mat Rollings.

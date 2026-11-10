@@ -3,6 +3,7 @@ package platform
 import "time"
 
 type BusinessContext struct {
+	RequestHash      string     `json:"requestHash,omitempty"`
 	CampaignID       string     `json:"campaignId,omitempty"`
 	RecipientID      string     `json:"recipientId,omitempty"`
 	OrderID          string     `json:"orderId,omitempty"`
@@ -54,7 +55,7 @@ func sceneFor(kind string) string {
 // Scores are trial rules. Evidence is separated by source and retained with the policy.
 func evaluateBusiness(e *Event, r Report, history []Event, outcomes []Outcome, p Policy) {
 	e.Score = 0
-	e.ModelVersion = "rules-0.4"
+	e.ModelVersion = "rules-0.5"
 	e.PolicySnapshot = p
 	e.Scene = sceneFor(e.Type)
 	e.Mode = p.Mode
@@ -220,6 +221,21 @@ func evaluateBusiness(e *Event, r Report, history []Event, outcomes []Outcome, p
 			add(30, "payment_chargeback_history", "outcome", chargebacks, 1, 30*24*time.Hour)
 		}
 	}
+	resourcePoints := 0
+	if r.Resources != nil {
+		for _, check := range r.Resources.Checks {
+			if check.Points > 0 && resourcePoints < 50 {
+				points := check.Points
+				if points > 50-resourcePoints {
+					points = 50 - resourcePoints
+				}
+				resourcePoints += points
+				e.Score += points
+				e.Reasons = append(e.Reasons, check.Code)
+				e.Hits = append(e.Hits, RuleHit{Code: check.Code, Points: points, Source: "resource", Dimension: check.Dimension})
+			}
+		}
+	}
 	if e.Score > 100 {
 		e.Score = 100
 	}
@@ -231,7 +247,7 @@ func evaluateBusiness(e *Event, r Report, history []Event, outcomes []Outcome, p
 	}
 	businessDimensions := map[string]bool{}
 	for _, hit := range e.Hits {
-		if hit.Source != "client" {
+		if hit.Source != "client" && hit.Source != "resource" {
 			businessDimensions[hit.Dimension] = true
 		}
 	}

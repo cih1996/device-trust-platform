@@ -13,6 +13,7 @@ import com.device.trust.EnvironmentCollector;
 import com.device.trust.RootBeerCollector;
 import com.device.trust.secure.PinnedHttp;
 import com.device.trust.secure.SecureReporter;
+import com.device.trust.secure.ResourceCollector;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 
@@ -65,6 +66,7 @@ public class MainActivity extends Activity {
             JSONObject prepared=post(business+"/prepare",token,new JSONObject().put("type",kind).put("keyId",keyId));
             eventId=prepared.getString("eventId");challenge=prepared.getJSONObject("challenge");reportId="";pendingType=kind;
             report=DeviceTrust.collect(this,new DeviceTrust.Options(appId,false),true);
+            ResourceCollector.collect(this,report,true);
             if(includeLocation)EnvironmentCollector.collect(this,report,true,EnvironmentCollector.Collection.WIFI,EnvironmentCollector.Collection.CELL,EnvironmentCollector.Collection.LOCATION);
             RootBeerCollector.collect(this,report,true);
             sendReport();finishBusiness();
@@ -82,7 +84,8 @@ public class MainActivity extends Activity {
         else if("verify".equals(state))text="需要核验 · 请在工作台处理后继续";
         else if("hold".equals(state))text="等待审核 · 请在工作台处理后继续";
         else throw new IllegalStateException("未知业务状态："+state);
-        show(text+"\n风险分："+result.getInt("score")+"\n请求号："+eventId.substring(0,12));
+        String deviceId=getSharedPreferences("dtp_secure",MODE_PRIVATE).getString("deviceId:"+appId,"");
+        show(text+"\n风险分："+result.getInt("score")+"\n设备 ID："+deviceId+"\n请求号："+eventId.substring(0,12));
     }
     private JSONObject post(String url,String bearer,JSONObject input) throws Exception {
         return PinnedHttp.post(url,BuildConfig.SERVER_PINS,bearer,"application/json",input.toString().getBytes(StandardCharsets.UTF_8));
