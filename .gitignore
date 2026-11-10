@@ -1,0 +1,8 @@
+data/
+work/
+**/build/
+**/.gradle/
+**/local.properties
+**/node_modules/
+web/dist/
+*.exe
