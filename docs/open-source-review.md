@@ -30,3 +30,7 @@ sdk-environment 使用 Android 公开 API，按 WIFI / CELL / LOCATION 显式开
 Wi-Fi 读取当前 BSSID 与 RSSI，过滤系统脱敏占位 BSSID；基站解析 LTE / GSM / WCDMA / NR 的小区、区域、dBm、注册状态与样本年龄，不支持的制式明确标注；定位保留坐标、精度、年龄与 mock 标记。平台未知哨兵输出 null，未知或异常时间戳不会伪装成新鲜样本。权限缺失、缓存缺失、未启用和原始执行错误分别记录。
 
 仍需真机版本 / ROM / 权限矩阵测试。这里的缓存、mock 标记和文件检查全部是可伪造的观察值，不构成硬件证明。
+
+## 0.4 原生构建复用
+
+xollvm v0.12.0 / LLVM22 作为构建工具，实际生成四种 ABI 的混淆原生库。工具 SHA-256、构建步骤和限制见 delivery-0.4.md；Apache2 with LLVM Exceptions 与上游组件授权保存在 third_party/licenses/xollvm-LICENSE.txt。平台密码运算仍使用系统提供者，私钥保持在 Keystore。

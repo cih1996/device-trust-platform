@@ -97,3 +97,7 @@ status 支持 failed / succeeded / chargeback。只能引用同应用已存在�
 业务试点要分别记录：人工确认的异常与正常样本、每条规则的误报与漏报、核验通过率、真实奖励发放 / 支付结果，以及实际策略是否执行。只有接入真实业务结果后才能衡量损失变化；后台当前不展示“已挽回损失”等未经核实的指标。
 
 设计参考：[OWASP 自动化威胁项目](https://owasp.org/projects/automated-threats-to-web-applications)用于确认业务功能滥用的场景范围；[Stripe 官方规则属性](https://docs.stripe.com/radar/rules/supported-attributes)用于核对支付事件、关联属性与结果计数的设计方向。本项目没有复用其风险模型、阈值或业务数据，上表为本项目待评测的规则设计。
+
+## 0.4 执行接入
+
+现已支持 enforce 模式与审批、执行授权和回执；接口以 [安全协议](secure-protocol.md) 为准。示例服务执行持久化演示账本，真实支付渠道需业务接入。

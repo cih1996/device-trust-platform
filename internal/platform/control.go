@@ -13,6 +13,9 @@ func (s *Server) policy(appID string) (Policy, error) {
 	if errors.Is(err, os.ErrNotExist) {
 		return DefaultPolicy(), nil
 	}
+	if p.Mode == "" {
+		p.Mode = "shadow"
+	}
 	return p, err
 }
 func (s *Server) savePolicy(w http.ResponseWriter, r *http.Request, appID string) {
@@ -23,6 +26,24 @@ func (s *Server) savePolicy(w http.ResponseWriter, r *http.Request, appID string
 	if err := decode(w, r, &p); err != nil {
 		fail(w, 400, err)
 		return
+	}
+	if p.Mode == "" {
+		p.Mode = "shadow"
+	}
+	if p.Mode != "shadow" && p.Mode != "enforce" {
+		fail(w, 400, errors.New("模式需为 shadow 或 enforce"))
+		return
+	}
+	if p.Mode == "enforce" {
+		security, err := s.security(appID)
+		if err != nil {
+			fail(w, 500, err)
+			return
+		}
+		if !security.RequireSignedReports {
+			fail(w, 400, errors.New("执行模式需开启签名上报"))
+			return
+		}
 	}
 	if p.ReviewScore < 1 || p.HoldScore < p.ReviewScore || p.HoldScore > 100 {
 		fail(w, 400, errors.New("reviewScore and holdScore must be between 1 and 100, holdScore >= reviewScore"))

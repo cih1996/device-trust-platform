@@ -1,0 +1,1 @@
+-keep class com.device.trust.secure.NativeFrame { *; }

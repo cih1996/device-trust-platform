@@ -38,10 +38,11 @@ func TestApplicationReportEventLifecycle(t *testing.T) {
 		t.Fatal(err)
 	}
 	admin := "test-admin-token-of-at-least-24-chars"
-	h := (&Server{store, admin}).Handler(t.TempDir())
+	h := (&Server{Store: store, AdminToken: admin}).Handler(t.TempDir())
 	request(t, h, "GET", "/api/overview", "", nil, 401)
 	create := func(name string) (string, string) {
 		a := request(t, h, "POST", "/api/apps", admin, map[string]string{"name": name, "package": "com.example." + name}, 201)
+		request(t, h, "PUT", "/api/apps/"+a["app"].(map[string]any)["id"].(string)+"/security", admin, AppSecurity{MaxEnrollmentHours: 24}, 200)
 		return a["app"].(map[string]any)["id"].(string), a["key"].(string)
 	}
 	id, key := create("one")
@@ -76,7 +77,7 @@ func TestApplicationReportEventLifecycle(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	h = (&Server{reopened, admin}).Handler(t.TempDir())
+	h = (&Server{Store: reopened, AdminToken: admin}).Handler(t.TempDir())
 	summary := request(t, h, "GET", "/api/overview?appId="+id, admin, nil, 200)
 	if summary["stats"].(map[string]any)["events"] != float64(5) {
 		t.Fatal(summary)
@@ -100,7 +101,7 @@ func TestConcurrentReportsAndMissingSignals(t *testing.T) {
 	if err = store.put("apps", a.ID, a); err != nil {
 		t.Fatal(err)
 	}
-	h := (&Server{store, "admin"}).Handler(t.TempDir())
+	h := (&Server{Store: store, AdminToken: "admin"}).Handler(t.TempDir())
 	var wg sync.WaitGroup
 	for i := 0; i < 24; i++ {
 		wg.Add(1)
@@ -136,7 +137,7 @@ func TestInputAndReportFreshness(t *testing.T) {
 	}
 	a := App{ID: "app", Package: "example", KeyHash: digest("secret")}
 	store.put("apps", a.ID, a)
-	h := (&Server{store, "admin"}).Handler(t.TempDir())
+	h := (&Server{Store: store, AdminToken: "admin"}).Handler(t.TempDir())
 	request(t, h, "POST", "/v1/reports", "", map[string]any{"appId": "app", "package": "example", "installationId": "id", "signals": map[string]Signal{"wifi": {Status: "made_up"}}}, 400)
 	p := Report{ID: "old", AppID: "app", InstallationID: "id"}
 	store.put("reports", p.ID, p)

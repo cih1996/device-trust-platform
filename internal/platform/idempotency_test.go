@@ -22,7 +22,7 @@ func TestConcurrentEventRetriesPublishOneDecision(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	h := (&Server{store, "admin"}).Handler(t.TempDir())
+	h := (&Server{Store: store, AdminToken: "admin"}).Handler(t.TempDir())
 	body := map[string]string{"eventId": "order-1001", "appId": "one", "reportId": "one", "accountId": "u1", "type": "reward", "clientIp": "203.0.113.1"}
 	data, _ := json.Marshal(body)
 	results := make([]map[string]any, 32)
@@ -72,7 +72,7 @@ func TestConcurrentEventRetriesPublishOneDecision(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	h = (&Server{reopened, "admin"}).Handler(t.TempDir())
+	h = (&Server{Store: reopened, AdminToken: "admin"}).Handler(t.TempDir())
 	request(t, h, "POST", "/v1/events", "secret", body, 200)
 	body["appId"] = "two"
 	body["reportId"] = "two"

@@ -1,0 +1,18 @@
+plugins { id 'com.android.library' }
+android {
+    namespace 'com.device.trust.secure'
+    compileSdk 35
+    defaultConfig { minSdk 24; consumerProguardFiles 'consumer-rules.pro' }
+    compileOptions { sourceCompatibility JavaVersion.VERSION_1_8; targetCompatibility JavaVersion.VERSION_1_8 }
+}
+dependencies { api project(':sdk') }
+tasks.register('checkNativeArtifacts') {
+    doLast {
+        ['arm64-v8a','armeabi-v7a','x86_64','x86'].each { abi ->
+            if (!file("src/main/jniLibs/${abi}/libdtpsecure.so").exists()) {
+                throw new GradleException("Missing ${abi} native library; run scripts/build-native.ps1 first")
+            }
+        }
+    }
+}
+tasks.named('preBuild').configure { dependsOn 'checkNativeArtifacts' }

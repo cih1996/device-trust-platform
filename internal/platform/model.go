@@ -3,12 +3,13 @@ package platform
 import "time"
 
 type App struct {
-	ID        string    `json:"id"`
-	Name      string    `json:"name"`
-	Package   string    `json:"package"`
-	KeyHash   string    `json:"keyHash,omitempty"`
-	CreatedAt time.Time `json:"createdAt"`
-	Policy    *Policy   `json:"policy,omitempty"`
+	ID        string       `json:"id"`
+	Name      string       `json:"name"`
+	Package   string       `json:"package"`
+	KeyHash   string       `json:"keyHash,omitempty"`
+	CreatedAt time.Time    `json:"createdAt"`
+	Policy    *Policy      `json:"policy,omitempty"`
+	Security  *AppSecurity `json:"security,omitempty"`
 }
 type Signal struct {
 	Status string `json:"status"`
@@ -23,6 +24,7 @@ type Report struct {
 	Signals        map[string]Signal `json:"signals"`
 	ObservedIP     string            `json:"observedIp"`
 	ReceivedAt     time.Time         `json:"receivedAt"`
+	Proof          *ReportProof      `json:"proof,omitempty"`
 }
 type Event struct {
 	ID             string          `json:"id"`
@@ -45,6 +47,7 @@ type Event struct {
 	Hits           []RuleHit       `json:"hits"`
 	MissingFields  []string        `json:"missingFields"`
 	PolicySnapshot Policy          `json:"policy"`
+	ReportProof    *ReportProof    `json:"reportProof,omitempty"`
 }
 
 // These are explainable trial rules, not a calibrated fraud probability.

@@ -1,0 +1,286 @@
+
+ <div v-if="!signedIn" class="login">
+<form @submit.prevent="login">
+<div class="mark">衡</div>
+<h1>知衡</h1>
+<p>设备风控工作台</p>
+<label for="token">管理口令</label>
+<input id="token" v-model="token" type="password" required autocomplete="current-password">
+<button :disabled="busy">进入工作台 →</button>
+<p v-if="error" class="error" role="alert">{{error}}</p>
+</form>
+</div>
+ <div v-else class="shell">
+  <aside>
+<a class="brand" href="/"> <span class="mark">衡</span> 知衡</a>
+<span class="caption">工作空间</span>
+<button :class="{active:section==='overview'}" @click="section='overview'" title="风险概览">◫ <span>风险概览</span>
+</button>
+<button :class="{active:section==='events'}" @click="section='events'" title="风险事件">☷ <span>风险事件</span>
+</button>
+<button :class="{active:section==='devices'}" @click="section='devices'" title="设备画像">▣ <span>设备画像</span>
+</button>
+<button :class="{active:section==='apps'}" @click="section='apps'" title="应用管理">◇ <span>应用管理</span>
+</button>
+<div class="aside-bottom">
+<span class="dot">
+</span> 本地工作台<button @click="logout">退出登录 ↗</button>
+</div>
+</aside>
+  <main>
+<header>
+<span>{{sectionNames[section]}}</span>
+<div class="toolbar">
+<select v-model="selected" @change="reload" aria-label="选择应用">
+<option value="">全部应用</option>
+<option v-for="app in apps" :value="app.id">{{app.name}}</option>
+</select>
+<button class="quiet" @click="reload" :disabled="busy">↻ 刷新</button>
+</div>
+</header>
+   <div v-if="error" class="error banner" role="alert">{{error}}</div>
+   <div class="content">
+<div class="heading">
+<div>
+<span class="eyebrow">DEVICE TRUST</span>
+<h1>{{section==='apps'?'管理你的应用':section==='devices'?'查看设备近况':section==='events'?'每一次风险，都有迹可循':'掌握设备与业务动态'}}</h1>
+<p>{{section==='apps'?'连接应用，管理接入凭据':section==='devices'?'设备信息与账号关联':section==='events'?'查看近期事件与风险线索':'过去 24 小时'}}</p>
+</div>
+<span class="badge">{{workspaceMode}}</span>
+</div>
+   <template v-if="section==='apps'">
+    <section class="panel">
+<h2>创建应用</h2>
+<form class="create" @submit.prevent="create">
+<input v-model="name" placeholder="应用名称" aria-label="应用名称" required>
+<input v-model="packageName" placeholder="应用包名" aria-label="应用包名" required>
+<button :disabled="busy">＋ 创建应用</button>
+</form>
+</section>
+    <section class="panel" v-if="newKey">
+<div class="panel-title">
+<h2>保存应用密钥</h2>
+<button class="quiet" @click="newKey=''">关闭 ×</button>
+</div>
+<p>仅展示一次，请保存到业务服务端。</p>
+<code class="secret">{{newKey}}</code>
+</section>
+    <section class="app-grid">
+<article class="panel app-card" v-for="app in apps">
+<div class="app-icon">{{app.name.slice(0,1)}}</div>
+<h2>{{app.name}}</h2>
+<p>{{app.package}}</p>
+<label>应用 ID</label>
+<code>{{app.id}}</code>
+<div class="toolbar">
+<button class="quiet" @click="openPolicy(app)">调整策略 ↗</button>
+<button class="quiet" @click="openSecurity(app)">接入保护 ↗</button>
+<button class="quiet" @click="rotate(app)" :disabled="busy">重置密钥 ↗</button>
+</div>
+</article>
+</section>
+<div v-if="!apps.length" class="empty">创建第一个应用，开始接入</div>
+   </template>
+   <section class="panel" v-else-if="section==='devices'">
+<h2>近期设备</h2>
+<div class="table-scroll">
+<table>
+<thead>
+<tr>
+<th>设备</th>
+<th>应用</th>
+<th>关联账号</th>
+<th>业务事件</th>
+<th>最近出现</th>
+<th>
+</th>
+</tr>
+</thead>
+<tbody>
+<tr v-for="p in overview.profiles">
+<td>{{p.installationId}}</td>
+<td>{{appName(p.appId)}}</td>
+<td>{{p.accountCount}}</td>
+<td>{{p.eventCount}}</td>
+<td>{{formatTime(p.lastSeen)}}</td>
+<td>
+<button class="quiet" @click="device=p">详情 ↗</button>
+</td>
+</tr>
+</tbody>
+</table>
+</div>
+<div v-if="!overview.profiles.length" class="empty">暂无设备</div>
+</section>
+   <template v-else>
+    <div class="stats" v-if="section==='overview'">
+<article>
+<span>业务事件</span>
+<strong>{{overview.stats.events.toLocaleString()}}</strong>
+<small>过去 24 小时</small>
+</article>
+<article>
+<span>活跃设备</span>
+<strong>{{overview.stats.devices.toLocaleString()}}</strong>
+<small>按应用统计的安装实例</small>
+</article>
+<article class="risk">
+<span>待关注事件</span>
+<strong>{{overview.stats.review.toLocaleString()}}</strong>
+<small>建议进一步核验</small>
+</article>
+</div>
+    <div class="scene-tabs">
+<button :class="{chosen:scenario===''}" @click="scenario=''">全部</button>
+<button v-for="(label,key) in sceneNames" :class="{chosen:scenario===key}" @click="scenario=key">{{label}} <span>{{overview.scenes[key]}}</span>
+</button>
+</div>
+    <section class="panel event-panel">
+<div class="panel-title">
+<h2>近期事件 <span class="count">{{events.length}}</span>
+</h2>
+<input v-model="query" placeholder="搜索账号、事件或设备" aria-label="搜索事件">
+</div>
+<div class="table-scroll">
+<table>
+<thead>
+<tr>
+<th>发生时间</th>
+<th>应用 / 事件</th>
+<th>账号</th>
+<th>风险分</th>
+<th>处置状态</th>
+<th>
+</th>
+</tr>
+</thead>
+<tbody>
+<tr v-for="e in events" :key="e.id">
+<td>{{formatTime(e.receivedAt)}}</td>
+<td>{{appName(e.appId)}}<small>{{sceneNames[e.scene]||e.type}}</small>
+</td>
+<td>{{e.accountId}}<small v-if="overview.feedback[e.id]">{{reviewNames[overview.feedback[e.id].label]}}</small>
+</td>
+<td>
+<span :class="['score',e.decision]">{{e.score}}</span>
+</td>
+<td>
+<span :class="['pill',e.decision,e.action]">{{gateState(e)}}</span>
+</td>
+<td>
+<button class="quiet" @click="openEvent(e)">详情 ↗</button>
+</td>
+</tr>
+</tbody>
+</table>
+</div>
+<div v-if="!events.length" class="empty">
+<div class="empty-icon">◫</div>
+<h3>暂无事件</h3>
+<p>应用接入后，业务动态将在这里呈现</p>
+</div>
+</section>
+   </template>
+</div>
+  </main>
+  <div v-if="policyApp" class="overlay" @click.self="policyApp=null">
+<section class="drawer">
+<button class="close quiet" @click="policyApp=null" aria-label="关闭策略">×</button>
+<span class="eyebrow">RISK POLICY</span>
+<h2>{{policyApp.name}} · 策略</h2>
+<form class="policy-form" @submit.prevent="savePolicy">
+<label>运行模式<select v-model="policyDraft.mode"><option value="shadow">观察模式</option><option value="enforce">执行模式</option></select></label>
+<label v-for="[key,label] in policyFields" :key="key">{{label}}<input type="number" v-model.number="policyDraft[key]" required min="1">
+</label>
+<p v-if="error" class="error" role="alert">{{error}}</p>
+<button :disabled="busy">保存策略</button>
+</form>
+</section>
+</div>
+  <div v-if="device" class="overlay" @click.self="device=null">
+<section class="drawer">
+<button class="close quiet" @click="device=null" aria-label="关闭画像">×</button>
+<span class="eyebrow">DEVICE PROFILE</span>
+<h2>设备画像</h2>
+<span class="pill">{{proofName(device.latestReport.proof)}}</span>
+<dl>
+<dt>应用</dt>
+<dd>{{appName(device.appId)}}</dd>
+<dt>设备</dt>
+<dd>{{device.installationId}}</dd>
+<dt>首次出现</dt>
+<dd>{{formatTime(device.firstSeen)}}</dd>
+<dt>最近出现</dt>
+<dd>{{formatTime(device.lastSeen)}}</dd>
+<dt>设备上报</dt>
+<dd>{{device.reportCount}} 次</dd>
+<dt>关联账号</dt>
+<dd>{{device.accountCount}} 个</dd>
+</dl>
+<button v-if="device.latestReport.proof" class="quiet" @click="revokeDevice" :disabled="busy">停用设备密钥</button>
+<h3>最近设备信息</h3>
+<dl>
+<template v-for="(s,key) in device.latestReport.signals">
+<dt>{{signalNames[key]||key}}</dt>
+<dd>{{signalValue(s)}}</dd>
+</template>
+</dl>
+</section>
+</div>
+  <div v-if="detail" class="overlay" @click.self="detail=null">
+<section class="drawer">
+<button class="close quiet" @click="detail=null" aria-label="关闭详情">×</button>
+<span class="eyebrow">EVENT DETAILS</span>
+<h2>事件详情</h2>
+<strong class="detail-score">{{detail.score}}<small> 风险分</small>
+</strong>
+<span class="pill">{{actionNames[detail.action]||'观察'}}</span>
+<span class="pill">{{proofName(detail.reportProof)}}</span>
+<dl class="event-context">
+<dt>应用</dt>
+<dd>{{appName(detail.appId)}}</dd>
+<dt>账号</dt>
+<dd>{{detail.accountId}}</dd>
+<dt>事件</dt>
+<dd>{{detail.type}}</dd>
+<dt>设备</dt>
+<dd>{{detail.installationId}}</dd>
+<dt>业务 IP</dt>
+<dd>{{detail.clientIp||'未提供'}}</dd>
+<dt>时间</dt>
+<dd>{{formatTime(detail.receivedAt)}}</dd>
+<dt>处置状态</dt><dd>{{gateState(detail)}}</dd>
+<template v-if="detail.context">
+<dt v-if="detail.context.campaignId">活动</dt>
+<dd v-if="detail.context.campaignId">{{detail.context.campaignId}}</dd>
+<dt v-if="detail.context.orderId">订单</dt>
+<dd v-if="detail.context.orderId">{{detail.context.orderId}}</dd>
+</template>
+<template v-if="overview.outcomes[detail.id]">
+<dt>支付结果</dt>
+<dd>{{outcomeNames[overview.outcomes[detail.id].status]}}</dd>
+</template>
+</dl>
+<h3>风险线索</h3>
+<p v-if="!detail.reasons.length">暂未命中规则</p>
+<div v-if="detail.hits" v-for="hit in detail.hits" class="reason">{{reasons[hit.code]||hit.code}}<small v-if="hit.threshold">命中 {{hit.observed}} · 阈值 {{hit.threshold}}</small>
+</div>
+<p v-else v-for="reason in detail.reasons" class="reason">{{reasons[reason]||reason}}</p>
+<p class="missing" v-if="detail.missingFields?.length">待补充：{{detail.missingFields.map(key=>fieldNames[key]||key).join('、')}}</p>
+<h3>处理反馈</h3>
+<p v-if="overview.feedback[detail.id]">{{reviewNames[overview.feedback[detail.id].label]}}</p>
+<textarea v-model="reviewNote" rows="2" placeholder="处理备注（可选）" aria-label="处理备注">
+</textarea>
+<div class="review-actions" v-if="detail.mode==='enforce'&&detail.action!=='observe'&&!overview.resolutions[detail.id]">
+<button :disabled="busy" @click="resolve('approved')">批准放行</button><button class="quiet" :disabled="busy" @click="resolve('rejected')">拒绝</button>
+</div>
+<div class="review-actions">
+<button :disabled="busy" @click="review('fraud')">确认异常</button>
+<button class="quiet" :disabled="busy" @click="review('legitimate')">确认正常</button>
+<button class="quiet" :disabled="busy" @click="review('unknown')">待确认</button>
+</div>
+<p v-if="error" class="error" role="alert">{{error}}</p>
+</section>
+</div>
+<div v-if="securityApp" class="overlay" @click.self="securityApp=null"><section class="drawer"><button class="close quiet" @click="securityApp=null" aria-label="关闭接入保护">×</button><span class="eyebrow">APP PROTECTION</span><h2>{{securityApp.name}} · 接入保护</h2><form class="policy-form" @submit.prevent="saveSecurity"><label class="check-row"><input type="checkbox" v-model="securityDraft.requireSignedReports">签名上报</label><label class="check-row"><input type="checkbox" v-model="securityDraft.requireHardware">硬件密钥验证</label><label>应用证书指纹<textarea v-model="signerText" rows="4" placeholder="每行一个 SHA-256 指纹"></textarea></label><label>设备验证有效期（小时）<input type="number" v-model.number="securityDraft.maxEnrollmentHours" min="1" max="168" required></label><p v-if="error" class="error" role="alert">{{error}}</p><button :disabled="busy">保存接入保护</button></form></section></div>
+ </div>

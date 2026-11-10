@@ -21,9 +21,12 @@ type Policy struct {
 	PaymentMethods       int    `json:"paymentMethods"`
 	PaymentAccounts      int    `json:"paymentAccounts"`
 	PaymentFailures      int    `json:"paymentFailures"`
+	Mode                 string `json:"mode"`
 }
 
-func DefaultPolicy() Policy { return Policy{"builtin-0.3", 30, 70, 3, 8, 3, 3, 3, 3} }
+func DefaultPolicy() Policy {
+	return Policy{Version: "builtin-0.4", ReviewScore: 30, HoldScore: 70, RegistrationAccounts: 3, IPRegistrations: 8, CampaignAccounts: 3, PaymentMethods: 3, PaymentAccounts: 3, PaymentFailures: 3, Mode: "shadow"}
+}
 
 type RuleHit struct {
 	Code          string `json:"code"`
@@ -51,10 +54,13 @@ func sceneFor(kind string) string {
 // Scores are trial rules. Evidence is separated by source and retained with the policy.
 func evaluateBusiness(e *Event, r Report, history []Event, outcomes []Outcome, p Policy) {
 	e.Score = 0
-	e.ModelVersion = "rules-0.3"
+	e.ModelVersion = "rules-0.4"
 	e.PolicySnapshot = p
 	e.Scene = sceneFor(e.Type)
-	e.Mode = "shadow"
+	e.Mode = p.Mode
+	if e.Mode == "" {
+		e.Mode = "shadow"
+	}
 	e.Reasons = []string{}
 	e.Hits = []RuleHit{}
 	e.MissingFields = []string{}

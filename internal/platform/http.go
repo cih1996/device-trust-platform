@@ -18,6 +18,7 @@ import (
 type Server struct {
 	Store      *Store
 	AdminToken string
+	Trust      *AttestationVerifier
 }
 
 func (s *Server) Handler(web string) http.Handler {
@@ -27,6 +28,11 @@ func (s *Server) Handler(web string) http.Handler {
 	mux.HandleFunc("POST /v1/reports", s.report)
 	mux.HandleFunc("POST /v1/events", s.event)
 	mux.HandleFunc("POST /v1/outcomes", s.outcome)
+	mux.HandleFunc("POST /v1/challenges", s.challenge)
+	mux.HandleFunc("POST /v1/secure", s.secure)
+	mux.HandleFunc("POST /v1/decisions/claim", s.claim)
+	mux.HandleFunc("POST /v1/decisions/resolve", s.resolve)
+	mux.HandleFunc("POST /v1/executions", s.execution)
 	mux.Handle("/", http.FileServer(http.Dir(web)))
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("X-Content-Type-Options", "nosniff")
@@ -95,6 +101,12 @@ func (s *Server) admin(w http.ResponseWriter, r *http.Request) {
 				return
 			}
 			apps[i].Policy = &p
+			config, err := s.security(apps[i].ID)
+			if err != nil {
+				fail(w, 500, err)
+				return
+			}
+			apps[i].Security = &config
 		}
 		reply(w, 200, apps)
 	case path == "apps" && r.Method == "POST":
@@ -112,6 +124,10 @@ func (s *Server) admin(w http.ResponseWriter, r *http.Request) {
 		}
 		key := token()
 		a := App{ID: token(), Name: input.Name, Package: input.Package, KeyHash: digest(key), CreatedAt: time.Now().UTC()}
+		if err := s.Store.put("security", a.ID, AppSecurity{RequireSignedReports: true, MaxEnrollmentHours: 24, SigningDigests: []string{}}); err != nil {
+			fail(w, 500, err)
+			return
+		}
 		if err := s.Store.put("apps", a.ID, a); err != nil {
 			fail(w, 500, err)
 			return
@@ -133,21 +149,22 @@ func (s *Server) admin(w http.ResponseWriter, r *http.Request) {
 		reply(w, 200, map[string]string{"key": key})
 	case path == "overview" && r.Method == "GET":
 		s.overview(w, r)
+	case path == "device-keys/revoke" && r.Method == "POST":
+		s.revokeKey(w, r)
 	case strings.HasPrefix(path, "apps/") && strings.HasSuffix(path, "/policy") && r.Method == "PUT":
 		s.savePolicy(w, r, strings.TrimSuffix(strings.TrimPrefix(path, "apps/"), "/policy"))
+	case strings.HasPrefix(path, "apps/") && strings.HasSuffix(path, "/security") && r.Method == "PUT":
+		s.saveSecurity(w, r, strings.TrimSuffix(strings.TrimPrefix(path, "apps/"), "/security"))
 	case strings.HasPrefix(path, "events/") && strings.HasSuffix(path, "/reviews") && r.Method == "POST":
 		s.review(w, r, strings.TrimSuffix(strings.TrimPrefix(path, "events/"), "/reviews"))
+	case strings.HasPrefix(path, "events/") && strings.HasSuffix(path, "/resolve") && r.Method == "POST":
+		s.adminResolve(w, r, strings.TrimSuffix(strings.TrimPrefix(path, "events/"), "/resolve"))
 	default:
 		fail(w, 404, errors.New("接口不存在"))
 	}
 }
 func (s *Server) report(w http.ResponseWriter, r *http.Request) {
-	var input struct {
-		AppID          string            `json:"appId"`
-		InstallationID string            `json:"installationId"`
-		Package        string            `json:"package"`
-		Signals        map[string]Signal `json:"signals"`
-	}
+	var input reportInput
 	if err := decode(w, r, &input); err != nil {
 		fail(w, 400, err)
 		return
@@ -156,17 +173,43 @@ func (s *Server) report(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
+	security, err := s.security(a.ID)
+	if err != nil {
+		fail(w, 500, err)
+		return
+	}
+	if security.RequireSignedReports {
+		fail(w, 403, errors.New("signed binary report required"))
+		return
+	}
+	s.legacyReport(w, r, input, a)
+}
+
+type reportInput struct {
+	AppID          string            `json:"appId"`
+	InstallationID string            `json:"installationId"`
+	Package        string            `json:"package"`
+	Signals        map[string]Signal `json:"signals"`
+}
+
+func validateSignals(signals map[string]Signal) error {
+	for name, signal := range signals {
+		switch signal.Status {
+		case "available", "permission_denied", "unavailable", "disabled", "error":
+		default:
+			return fmt.Errorf("invalid signal status: %s", name)
+		}
+	}
+	return nil
+}
+func (s *Server) legacyReport(w http.ResponseWriter, r *http.Request, input reportInput, a App) {
 	if input.InstallationID == "" || input.Package == "" || len(input.Signals) == 0 {
 		fail(w, 400, errors.New("installationId, package and signals required"))
 		return
 	}
-	for name, signal := range input.Signals {
-		switch signal.Status {
-		case "available", "permission_denied", "unavailable", "disabled", "error":
-		default:
-			fail(w, 400, fmt.Errorf("invalid signal status: %s", name))
-			return
-		}
+	if err := validateSignals(input.Signals); err != nil {
+		fail(w, 400, err)
+		return
 	}
 	input.Signals["expectedPackage"] = Signal{Status: "available", Value: input.Package == a.Package}
 	ip, _, err := net.SplitHostPort(r.RemoteAddr)
@@ -254,6 +297,10 @@ func (s *Server) createEvent(w http.ResponseWriter, input eventInput, a App, id 
 		fail(w, 403, errors.New("report belongs to another application"))
 		return
 	}
+	if err := s.validateReportBinding(report, input); err != nil {
+		fail(w, 403, err)
+		return
+	}
 	if time.Since(report.ReceivedAt) > 15*time.Minute {
 		fail(w, 400, errors.New("report expired; collect a new report"))
 		return
@@ -274,6 +321,7 @@ func (s *Server) createEvent(w http.ResponseWriter, input eventInput, a App, id 
 		return
 	}
 	e := Event{ID: id, BusinessID: input.BusinessID, AppID: a.ID, ReportID: report.ID, AccountID: input.AccountID, Type: input.Type, ClientIP: input.ClientIP, InstallationID: report.InstallationID, Context: input.Context, ReceivedAt: time.Now().UTC()}
+	e.ReportProof = report.Proof
 	evaluateBusiness(&e, report, history, outcomes, p)
 	if err = s.Store.create("events", e.ID, e); errors.Is(err, os.ErrExist) {
 		var saved Event
@@ -302,6 +350,30 @@ func (s *Server) overview(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	filtered := []Event{}
+	resolutions, err := records[Resolution](s.Store, "resolutions")
+	if err != nil {
+		fail(w, 500, err)
+		return
+	}
+	resolutionMap := map[string]Resolution{}
+	for _, item := range resolutions {
+		resolutionMap[item.EventID] = item
+	}
+	executions, err := records[Execution](s.Store, "executions")
+	if err != nil {
+		fail(w, 500, err)
+		return
+	}
+	executionMap := map[string]Execution{}
+	for _, item := range executions {
+		if appID != "" && item.AppID != appID {
+			continue
+		}
+		old, ok := executionMap[item.EventID]
+		if !ok || item.ReceivedAt.After(old.ReceivedAt) {
+			executionMap[item.EventID] = item
+		}
+	}
 	reviews, err := records[Review](s.Store, "reviews")
 	if err != nil {
 		fail(w, 500, err)
@@ -364,5 +436,18 @@ func (s *Server) overview(w http.ResponseWriter, r *http.Request) {
 	if len(filtered) > 100 {
 		filtered = filtered[:100]
 	}
-	reply(w, 200, map[string]any{"events": filtered, "feedback": feedback, "outcomes": latestOutcomes, "scenes": scenes, "profiles": profiles(reports, events, appID), "stats": map[string]int{"events": today, "devices": len(devices), "review": review}})
+	if appID != "" {
+		allowed := map[string]bool{}
+		for _, e := range events {
+			if e.AppID == appID {
+				allowed[e.ID] = true
+			}
+		}
+		for id := range resolutionMap {
+			if !allowed[id] {
+				delete(resolutionMap, id)
+			}
+		}
+	}
+	reply(w, 200, map[string]any{"events": filtered, "resolutions": resolutionMap, "executions": executionMap, "feedback": feedback, "outcomes": latestOutcomes, "scenes": scenes, "profiles": profiles(reports, events, appID), "stats": map[string]int{"events": today, "devices": len(devices), "review": review}})
 }

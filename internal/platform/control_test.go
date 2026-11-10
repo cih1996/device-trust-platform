@@ -16,7 +16,7 @@ func TestBusinessContextPolicyOutcomesAndFeedback(t *testing.T) {
 	if err = store.put("reports", "report", Report{ID: "report", AppID: "app", InstallationID: "device", ReceivedAt: time.Now().UTC()}); err != nil {
 		t.Fatal(err)
 	}
-	h := (&Server{store, "admin"}).Handler(t.TempDir())
+	h := (&Server{Store: store, AdminToken: "admin"}).Handler(t.TempDir())
 	body := map[string]any{"eventId": "p1", "appId": "app", "reportId": "report", "accountId": "u", "type": "payment", "clientIp": "::ffff:203.0.113.1", "context": map[string]any{"orderId": "order1", "paymentMethodId": "provider-token", "amountMinor": 100, "currency": "CNY"}}
 	body["context"].(map[string]any)["accountCreatedAt"] = time.Now().Add(-time.Hour).UTC().Format(time.RFC3339)
 	first := request(t, h, "POST", "/v1/events", "secret", body, 201)
