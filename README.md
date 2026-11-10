@@ -2,11 +2,13 @@
 
 独立的 Android 设备风险 SDK 与风控平台。当前阶段先研究数美科技公开的设备指纹与反欺诈产品能力，形成有来源的功能对照与产品范围，再开发 SDK、服务端和管理后台。
 
-## 当前版本 0.2
+## 当前版本 0.3
 
 已实现：Android Java SDK（Kotlin 可直接调用）、基础信号显式采集与 HTTPS 上报；Go 多应用与密钥管理、设备报告与画像、业务事件评估、统计；Vue 管理工作台。
 
 0.2 新增：业务事件 eventId 并发去重、可选网络位置采集模块、可选 RootBeer 0.1.2 适配模块。GitHub 候选与实际复用范围见 [docs/open-source-review.md](docs/open-source-review.md)。
+
+0.3 新增：注册 / 营销 / 支付场景关联规则、命中证据与输入覆盖、应用策略阈值、支付结果回流、人工反馈留痕。协议与规则表见 [docs/business-risk.md](docs/business-risk.md)。当前观察模式返回核验 / 暂缓建议，由业务方试点评测后接入实际处置。
 
 研究矩阵、Android 各信号约束和阶段计划见 [docs/research.md](docs/research.md)；接口和 SDK 示例见 [docs/integration.md](docs/integration.md)。
 

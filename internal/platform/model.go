@@ -8,6 +8,7 @@ type App struct {
 	Package   string    `json:"package"`
 	KeyHash   string    `json:"keyHash,omitempty"`
 	CreatedAt time.Time `json:"createdAt"`
+	Policy    *Policy   `json:"policy,omitempty"`
 }
 type Signal struct {
 	Status string `json:"status"`
@@ -24,26 +25,34 @@ type Report struct {
 	ReceivedAt     time.Time         `json:"receivedAt"`
 }
 type Event struct {
-	ID             string    `json:"id"`
-	BusinessID     string    `json:"eventId,omitempty"`
-	AppID          string    `json:"appId"`
-	ReportID       string    `json:"reportId"`
-	AccountID      string    `json:"accountId"`
-	Type           string    `json:"type"`
-	ClientIP       string    `json:"clientIp"`
-	InstallationID string    `json:"installationId"`
-	Score          int       `json:"score"`
-	Decision       string    `json:"decision"`
-	Reasons        []string  `json:"reasons"`
-	ModelVersion   string    `json:"modelVersion"`
-	ReceivedAt     time.Time `json:"receivedAt"`
+	ID             string          `json:"id"`
+	BusinessID     string          `json:"eventId,omitempty"`
+	AppID          string          `json:"appId"`
+	ReportID       string          `json:"reportId"`
+	AccountID      string          `json:"accountId"`
+	Type           string          `json:"type"`
+	ClientIP       string          `json:"clientIp"`
+	InstallationID string          `json:"installationId"`
+	Score          int             `json:"score"`
+	Decision       string          `json:"decision"`
+	Reasons        []string        `json:"reasons"`
+	ModelVersion   string          `json:"modelVersion"`
+	ReceivedAt     time.Time       `json:"receivedAt"`
+	Context        BusinessContext `json:"context"`
+	Scene          string          `json:"scene"`
+	Action         string          `json:"action"`
+	Mode           string          `json:"mode"`
+	Hits           []RuleHit       `json:"hits"`
+	MissingFields  []string        `json:"missingFields"`
+	PolicySnapshot Policy          `json:"policy"`
 }
 
 // These are explainable trial rules, not a calibrated fraud probability.
 func evaluate(e *Event, r Report, history []Event) {
-	e.ModelVersion = "rules-0.1"
-	e.Reasons = []string{}
-	add := func(score int, reason string) { e.Score += score; e.Reasons = append(e.Reasons, reason) }
+	evaluateBusiness(e, r, history, nil, DefaultPolicy())
+}
+
+func evaluateDevice(e *Event, r Report, history []Event, add func(int, string)) {
 	if s := r.Signals["debugger"]; s.Status == "available" && s.Value == true {
 		add(15, "debugger")
 	}
@@ -75,12 +84,5 @@ func evaluate(e *Event, r Report, history []Event) {
 	}
 	if count >= 10 {
 		add(35, "frequent_events_1m")
-	}
-	if e.Score > 100 {
-		e.Score = 100
-	}
-	e.Decision = "observe"
-	if e.Score >= 30 {
-		e.Decision = "review"
 	}
 }

@@ -9,6 +9,7 @@ import (
 	"net"
 	"net/http"
 	"os"
+	"reflect"
 	"sort"
 	"strings"
 	"time"
@@ -25,6 +26,7 @@ func (s *Server) Handler(web string) http.Handler {
 	mux.HandleFunc("/api/", s.admin)
 	mux.HandleFunc("POST /v1/reports", s.report)
 	mux.HandleFunc("POST /v1/events", s.event)
+	mux.HandleFunc("POST /v1/outcomes", s.outcome)
 	mux.Handle("/", http.FileServer(http.Dir(web)))
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("X-Content-Type-Options", "nosniff")
@@ -87,6 +89,12 @@ func (s *Server) admin(w http.ResponseWriter, r *http.Request) {
 		}
 		for i := range apps {
 			apps[i].KeyHash = ""
+			p, err := s.policy(apps[i].ID)
+			if err != nil {
+				fail(w, 500, err)
+				return
+			}
+			apps[i].Policy = &p
 		}
 		reply(w, 200, apps)
 	case path == "apps" && r.Method == "POST":
@@ -125,6 +133,10 @@ func (s *Server) admin(w http.ResponseWriter, r *http.Request) {
 		reply(w, 200, map[string]string{"key": key})
 	case path == "overview" && r.Method == "GET":
 		s.overview(w, r)
+	case strings.HasPrefix(path, "apps/") && strings.HasSuffix(path, "/policy") && r.Method == "PUT":
+		s.savePolicy(w, r, strings.TrimSuffix(strings.TrimPrefix(path, "apps/"), "/policy"))
+	case strings.HasPrefix(path, "events/") && strings.HasSuffix(path, "/reviews") && r.Method == "POST":
+		s.review(w, r, strings.TrimSuffix(strings.TrimPrefix(path, "events/"), "/reviews"))
 	default:
 		fail(w, 404, errors.New("接口不存在"))
 	}
@@ -191,6 +203,13 @@ func (s *Server) event(w http.ResponseWriter, r *http.Request) {
 		fail(w, 400, errors.New("invalid clientIp"))
 		return
 	}
+	if input.ClientIP != "" {
+		input.ClientIP = net.ParseIP(input.ClientIP).String()
+	}
+	if input.Context.AmountMinor < 0 || (input.Context.AmountMinor > 0 && input.Context.Currency == "") {
+		fail(w, 400, errors.New("amountMinor must be non-negative and a positive amount requires currency"))
+		return
+	}
 	id := digest(a.ID + ":" + input.BusinessID)
 	var existing Event
 	if err := s.Store.get("events", id, &existing); err == nil {
@@ -204,16 +223,17 @@ func (s *Server) event(w http.ResponseWriter, r *http.Request) {
 }
 
 type eventInput struct {
-	BusinessID string `json:"eventId"`
-	AppID      string `json:"appId"`
-	ReportID   string `json:"reportId"`
-	AccountID  string `json:"accountId"`
-	Type       string `json:"type"`
-	ClientIP   string `json:"clientIp"`
+	BusinessID string          `json:"eventId"`
+	AppID      string          `json:"appId"`
+	ReportID   string          `json:"reportId"`
+	AccountID  string          `json:"accountId"`
+	Type       string          `json:"type"`
+	ClientIP   string          `json:"clientIp"`
+	Context    BusinessContext `json:"context"`
 }
 
 func replay(w http.ResponseWriter, existing Event, input eventInput) {
-	if existing.ReportID != input.ReportID || existing.AccountID != input.AccountID || existing.Type != input.Type || existing.ClientIP != input.ClientIP {
+	if existing.ReportID != input.ReportID || existing.AccountID != input.AccountID || existing.Type != input.Type || existing.ClientIP != input.ClientIP || !reflect.DeepEqual(existing.Context, input.Context) {
 		fail(w, 409, errors.New("eventId already used with different event data"))
 		return
 	}
@@ -243,8 +263,18 @@ func (s *Server) createEvent(w http.ResponseWriter, input eventInput, a App, id 
 		fail(w, 500, err)
 		return
 	}
-	e := Event{ID: id, BusinessID: input.BusinessID, AppID: a.ID, ReportID: report.ID, AccountID: input.AccountID, Type: input.Type, ClientIP: input.ClientIP, InstallationID: report.InstallationID, ReceivedAt: time.Now().UTC()}
-	evaluate(&e, report, history)
+	outcomes, err := records[Outcome](s.Store, "outcomes")
+	if err != nil {
+		fail(w, 500, err)
+		return
+	}
+	p, err := s.policy(a.ID)
+	if err != nil {
+		fail(w, 500, err)
+		return
+	}
+	e := Event{ID: id, BusinessID: input.BusinessID, AppID: a.ID, ReportID: report.ID, AccountID: input.AccountID, Type: input.Type, ClientIP: input.ClientIP, InstallationID: report.InstallationID, Context: input.Context, ReceivedAt: time.Now().UTC()}
+	evaluateBusiness(&e, report, history, outcomes, p)
 	if err = s.Store.create("events", e.ID, e); errors.Is(err, os.ErrExist) {
 		var saved Event
 		if err = s.Store.get("events", id, &saved); err != nil {
@@ -272,6 +302,38 @@ func (s *Server) overview(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	filtered := []Event{}
+	reviews, err := records[Review](s.Store, "reviews")
+	if err != nil {
+		fail(w, 500, err)
+		return
+	}
+	feedback := map[string]Review{}
+	for _, review := range reviews {
+		if appID != "" && review.AppID != appID {
+			continue
+		}
+		prior, ok := feedback[review.EventID]
+		if !ok || review.ReceivedAt.After(prior.ReceivedAt) {
+			feedback[review.EventID] = review
+		}
+	}
+	results, err := records[Outcome](s.Store, "outcomes")
+	if err != nil {
+		fail(w, 500, err)
+		return
+	}
+	latestOutcomes := map[string]Outcome{}
+	for _, outcome := range results {
+		if appID != "" && outcome.AppID != appID {
+			continue
+		}
+		key := digest(outcome.AppID + ":" + outcome.EventID)
+		old, exists := latestOutcomes[key]
+		if !exists || outcome.OccurredAt.After(old.OccurredAt) || (outcome.OccurredAt.Equal(old.OccurredAt) && outcome.ReceivedAt.After(old.ReceivedAt)) {
+			latestOutcomes[key] = outcome
+		}
+	}
+	scenes := map[string]int{"registration": 0, "marketing": 0, "payment": 0, "general": 0}
 	devices := map[string]bool{}
 	review := 0
 	today := 0
@@ -281,8 +343,12 @@ func (s *Server) overview(w http.ResponseWriter, r *http.Request) {
 		if appID != "" && appID != e.AppID {
 			continue
 		}
+		if e.Scene == "" {
+			e.Scene = sceneFor(e.Type)
+		}
 		filtered = append(filtered, e)
 		if e.ReceivedAt.After(start) {
+			scenes[sceneFor(e.Type)]++
 			today++
 			if e.Decision == "review" {
 				review++
@@ -298,5 +364,5 @@ func (s *Server) overview(w http.ResponseWriter, r *http.Request) {
 	if len(filtered) > 100 {
 		filtered = filtered[:100]
 	}
-	reply(w, 200, map[string]any{"events": filtered, "profiles": profiles(reports, events, appID), "stats": map[string]int{"events": today, "devices": len(devices), "review": review}})
+	reply(w, 200, map[string]any{"events": filtered, "feedback": feedback, "outcomes": latestOutcomes, "scenes": scenes, "profiles": profiles(reports, events, appID), "stats": map[string]int{"events": today, "devices": len(devices), "review": review}})
 }

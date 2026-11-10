@@ -19,7 +19,7 @@
 
 没有调用 `isRooted`、shell 命令、包列表扫描和把异常改成 false 的便捷方法。原生加载失败的 `UnsatisfiedLinkError` 保留原始错误字符串到 error 状态，并输出完整 logcat 堆栈；其他已完成字段仍可上报。上游源码未修改。
 
-`false` 只表示本次方法未发现线索。路径不可见、隐藏 Root、改名工具、定制 ROM 都可能使方法失效；本模块不自动影响现有评分。Root、测试版系统或 VPN 单独出现均不等于业务作弊。
+`false` 只表示本次方法未发现线索。路径不可见、隐藏 Root、改名工具、定制 ROM 都可能使方法失效。0.2 只记录字段；rules-0.3 在至少两项可用的 su / magisk / native-su 观察为 true 时加 20 分，来源仍标为客户端。Java / native 检查同一路径不构成独立可信证明。Root、测试版系统或 VPN 单独出现均不等于业务作弊。
 
 随交付保留上游版权说明和完整授权文本：`third_party/NOTICE.md`、`third_party/licenses/rootbeer-LICENSE.txt`。发布包附独立上游 AAR；自定义 SDK AAR 不会自动内嵌其他 AAR，接入方必须按 integration.md 同时添加所需文件与依赖。
 

@@ -1,4 +1,6 @@
-# 接入协议 0.2
+# 接入协议 0.3
+
+0.3 新增业务 context、场景风险建议、支付结果回流、策略与人工反馈，详见 [business-risk.md](business-risk.md)。SDK 采集模块与 0.2 相同；旧事件字段继续兼容，规则版本升级为 rules-0.3。
 
 ## Android
 
@@ -47,7 +49,7 @@ EnvironmentCollector.collect(context, report, consentGranted,
 RootBeerCollector.collect(context, report, consentGranted);
 ```
 
-上报 rootBeerTestKeys、rootBeerSuBinary、rootBeerMagiskBinary、rootBeerNativeSu 与 rootBeerVersion。原生库加载失败保留 error 状态、原始错误和 logcat 堆栈。现有评分暂不使用这些新字段。授权文本与实际复用范围见 open-source-review.md。
+上报 rootBeerTestKeys、rootBeerSuBinary、rootBeerMagiskBinary、rootBeerNativeSu 与 rootBeerVersion。原生库加载失败保留 error 状态、原始错误和 logcat 堆栈。rules-0.3 在 su / magisk / native-su 至少两项 available=true 时加 20 分，作为自报环境线索。授权文本与实际复用范围见 open-source-review.md。
 
 ### 独立采集测试 App
 
@@ -92,7 +94,7 @@ clientIp 可选，应由业务后端按自身可信代理规则确认，不能�
 
 eventId 必填，必须由业务服务端为一次真实业务事件生成并在重试时复用。同一应用内相同 eventId 与相同 reportId / accountId / type / clientIp 返回 200 与首次保存的完整结果（含原始时间与评分）；改变内容返回 409。不同应用可使用相同 eventId。已保存事件的重试不受报告后来过期影响，但仍校验当前应用密钥。不要为重试重新生成 eventId 或替换 reportId；新业务事件使用新 eventId。
 
-规则 `rules-0.1`：调试 +15、简单模拟器线索 +20、VPN +5、包名不匹配 +30；同应用同 installationId 在 24h 内至少四个不同账号 +35，一分钟内已有至少十个事件 +35；总分封顶 100，达到 30 建议关注。规则分数尚未经实测校准。事件窗口使用服务器时间，跨应用不合并；不同事件并发请求按各自历史快照评估，无法用作强事务的精确限额扣减。
+规则 `rules-0.3` 保留原有设备基础分，并新增注册 / 活动 / 支付场景关联，完整规则见 business-risk.md。默认总分封顶 100、30 分建议核验；70 分且存在不同业务维度关联时，营销 / 支付建议暂缓。返回始终带 mode=shadow。规则分数尚未经实测校准，当前不实际执行处置。
 
 常见状态：400 请求或报告过期；401 凭据无效；403 跨应用报告；404 记录不存在；409 事件号内容冲突；500 原始存储 / 解码错误。单次错误直接返回，批量调用方应逐项记录结果，继续其他请求。
 
@@ -105,9 +107,13 @@ eventId 必填，必须由业务服务端为一次真实业务事件生成并在
 | GET | /api/apps | 应用列表，不含密钥摘要 |
 | POST | /api/apps | 创建；body: name、package；返回 app 与一次性展示的 key |
 | POST | /api/apps/{id}/rotate-key | 生成新密钥，旧密钥立即失效 |
+| PUT | /api/apps/{id}/policy | 保存应用阈值并生成版本 |
+| POST | /api/events/{内部id}/reviews | 追加人工反馈 |
 | GET | /api/overview?appId=... | 最近 24h 统计、最新 100 条事件和最新出现的 100 个设备画像；省略 appId 为全部应用 |
 | GET | /health | 服务就绪 |
 
 管理口令来自 `DTP_ADMIN_TOKEN`，至少 24 字符。应用密钥由密码学随机数生成，存 SHA-256 摘要。当前无多用户登录、角色、操作审计与自助找回，属于本地开发管理入口。
 
 overview 的 profiles 包含 appId、installationId、firstSeen、lastSeen、reportCount、eventCount、accountCount 和 latestReport（含信号状态）。画像计数覆盖当前全部留存历史；顶部 stats 覆盖最近 24 小时。设备画像以应用内客户端 ID 关联，不意味着已验证物理设备身份。
+
+`POST /v1/outcomes` 为应用密钥鉴权的支付结果回流接口；overview 新增 scenes / feedback / outcomes。回调幂等与上下文重试比较规则见 business-risk.md。

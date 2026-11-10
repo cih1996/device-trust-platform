@@ -13,7 +13,7 @@ import (
 type Store struct{ Root string }
 
 func Open(root string) (*Store, error) {
-	for _, name := range []string{"apps", "reports", "events"} {
+	for _, name := range []string{"apps", "reports", "events", "policies", "outcomes", "reviews"} {
 		if err := os.MkdirAll(filepath.Join(root, name), 0700); err != nil {
 			return nil, err
 		}
