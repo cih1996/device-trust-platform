@@ -18,7 +18,7 @@
 </button>
 <button :class="{active:section==='events'}" @click="section='events'" title="风险事件">☷ <span>风险事件</span>
 </button>
-<button :class="{active:section==='devices'}" @click="section='devices'" title="设备画像">▣ <span>设备画像</span>
+<button :class="{active:section==='devices'}" @click="section='devices'" title="设备档案">▣ <span>设备档案</span>
 </button>
 <button :class="{active:section==='apps'}" @click="section='apps'" title="应用管理">◇ <span>应用管理</span>
 </button>
@@ -33,7 +33,7 @@
 <div class="toolbar">
 <a class="quiet" href="https://devicetrust.lingzidev.com/docs/" target="_blank" rel="noopener">接入文档 ↗</a>
 <a class="quiet" href="https://devicetrust.lingzidev.com/#downloads" target="_blank" rel="noopener">SDK 下载 ↗</a>
-<select v-model="selected" @change="reload" aria-label="选择应用">
+<select v-model="selected" @change="changeApp" aria-label="选择应用">
 <option value="">全部应用</option>
 <option v-for="app in apps" :value="app.id">{{app.name}}</option>
 </select>
@@ -83,37 +83,7 @@
 </section>
 <div v-if="!apps.length" class="empty">创建第一个应用，开始接入</div>
    </template>
-   <section class="panel" v-else-if="section==='devices'">
-<h2>近期设备</h2>
-<div class="table-scroll">
-<table>
-<thead>
-<tr>
-<th>设备</th>
-<th>应用</th>
-<th>关联账号</th>
-<th>业务事件</th>
-<th>最近出现</th>
-<th>
-</th>
-</tr>
-</thead>
-<tbody>
-<tr v-for="p in overview.profiles">
-<td>{{p.installationId}}</td>
-<td>{{appName(p.appId)}}</td>
-<td>{{p.accountCount}}</td>
-<td>{{p.eventCount}}</td>
-<td>{{formatTime(p.lastSeen)}}</td>
-<td>
-<button class="quiet" @click="device=p">详情 ↗</button>
-</td>
-</tr>
-</tbody>
-</table>
-</div>
-<div v-if="!overview.profiles.length" class="empty">暂无设备</div>
-</section>
+   <device-workspace v-else-if="section==='devices'" ref="deviceWorkspace" :api="api" :app-id="selected" :apps="apps"></device-workspace>
    <template v-else>
     <div class="stats" v-if="section==='overview'">
 <article>
@@ -199,38 +169,6 @@
 </form>
 </section>
 </div>
-  <div v-if="device" class="overlay" @click.self="device=null">
-<section class="drawer">
-<button class="close quiet" @click="device=null" aria-label="关闭画像">×</button>
-<span class="eyebrow">DEVICE PROFILE</span>
-<h2>设备画像</h2>
-<span class="pill">{{proofName(device.latestReport.proof)}}</span>
-<dl>
-<dt>应用</dt>
-<dd>{{appName(device.appId)}}</dd>
-<dt>设备</dt>
-<dd>{{device.installationId}}</dd>
-<dt v-if="device.latestReport.deviceId">设备 ID</dt><dd v-if="device.latestReport.deviceId">{{device.latestReport.deviceId}}</dd>
-<dt>首次出现</dt>
-<dd>{{formatTime(device.firstSeen)}}</dd>
-<dt>最近出现</dt>
-<dd>{{formatTime(device.lastSeen)}}</dd>
-<dt>设备上报</dt>
-<dd>{{device.reportCount}} 次</dd>
-<dt>关联账号</dt>
-<dd>{{device.accountCount}} 个</dd>
-</dl>
-<button v-if="device.latestReport.proof" class="quiet" @click="revokeDevice" :disabled="busy">停用设备密钥</button>
-<h3>最近设备信息</h3>
-<resource-panel :assessment="device.latestReport.resources"></resource-panel>
-<dl>
-<template v-for="(s,key) in device.latestReport.signals">
-<dt>{{signalNames[key]||key}}</dt>
-<dd>{{signalValue(s)}}</dd>
-</template>
-</dl>
-</section>
-</div>
   <div v-if="detail" class="overlay" @click.self="detail=null">
 <section class="drawer">
 <button class="close quiet" @click="detail=null" aria-label="关闭详情">×</button>
@@ -248,7 +186,7 @@
 <dt>事件</dt>
 <dd>{{detail.type}}</dd>
 <dt>设备</dt>
-<dd>{{detail.installationId}}</dd>
+<dd>{{detail.deviceId||detail.installationId}}</dd>
 <dt>业务 IP</dt>
 <dd>{{detail.clientIp||'未提供'}}</dd>
 <dt>时间</dt>

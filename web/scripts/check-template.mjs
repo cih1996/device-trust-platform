@@ -1,4 +1,4 @@
 import fs from 'node:fs'
 import { compile } from '@vue/compiler-dom'
-compile(fs.readFileSync(new URL('../src/template.html',import.meta.url),'utf8'))
+for(const name of ['template.html','device-workspace.html'])compile(fs.readFileSync(new URL('../src/'+name,import.meta.url),'utf8'))
 console.log('Vue template compiled successfully')

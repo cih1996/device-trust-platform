@@ -363,6 +363,7 @@ func (s *Server) secure(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	report.DeviceID = deviceID
+	report.Purpose = challenge.Type
 	if s.Resources != nil {
 		report.Resources, err = s.Resources.Assess(report)
 		if err != nil {

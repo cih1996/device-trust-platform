@@ -15,6 +15,7 @@ server {
     ssl_certificate_key /etc/nginx/ssl/devicetrust/devicetrust.lingzidev.com/privkey.pem;
     ssl_protocols TLSv1.2 TLSv1.3;
     root /opt/devicetrust/current/site;
+    add_header Cache-Control "no-cache" always;
     index index.html;
     access_log /var/log/nginx/devicetrust-site.access.log;
     error_log /var/log/nginx/devicetrust-site.error.log;
@@ -35,6 +36,7 @@ server {
     ssl_certificate_key /etc/nginx/ssl/devicetrust/devicetrust-console.lingzidev.com/privkey.pem;
     ssl_protocols TLSv1.2 TLSv1.3;
     root /opt/devicetrust/current/web;
+    add_header Cache-Control "no-cache" always;
     index index.html;
     client_max_body_size 256k;
     access_log /var/log/nginx/devicetrust-console.access.log;

@@ -6,6 +6,13 @@ import (
 )
 
 type Profile struct {
+	RegisteredAt   *time.Time `json:"registeredAt,omitempty"`
+	KeyStatus      string     `json:"keyStatus"`
+	ID             string     `json:"id"`
+	DeviceID       string     `json:"deviceId,omitempty"`
+	RiskScore      int        `json:"riskScore"`
+	LastAction     string     `json:"lastAction,omitempty"`
+	lastEvent      time.Time
 	AppID          string    `json:"appId"`
 	InstallationID string    `json:"installationId"`
 	FirstSeen      time.Time `json:"firstSeen"`
@@ -27,7 +34,7 @@ func profiles(reports []Report, events []Event, appID string) []Profile {
 		key := r.AppID + ":" + r.InstallationID
 		p := devices[key]
 		if p == nil {
-			p = &Profile{AppID: r.AppID, InstallationID: r.InstallationID, FirstSeen: r.ReceivedAt}
+			p = &Profile{ID: digest(key), AppID: r.AppID, InstallationID: r.InstallationID, FirstSeen: r.ReceivedAt}
 			devices[key] = p
 			accounts[key] = map[string]bool{}
 		}
@@ -38,6 +45,7 @@ func profiles(reports []Report, events []Event, appID string) []Profile {
 		if r.ReceivedAt.After(p.LastSeen) {
 			p.LastSeen = r.ReceivedAt
 			p.LatestReport = r
+			p.DeviceID = r.DeviceID
 		}
 	}
 	for _, e := range events {
@@ -45,6 +53,11 @@ func profiles(reports []Report, events []Event, appID string) []Profile {
 		if p := devices[key]; p != nil {
 			p.EventCount++
 			accounts[key][e.AccountID] = true
+			if e.ReceivedAt.After(p.lastEvent) {
+				p.lastEvent = e.ReceivedAt
+				p.RiskScore = e.Score
+				p.LastAction = e.Action
+			}
 		}
 	}
 	result := []Profile{}
@@ -53,8 +66,5 @@ func profiles(reports []Report, events []Event, appID string) []Profile {
 		result = append(result, *p)
 	}
 	sort.Slice(result, func(i, j int) bool { return result[i].LastSeen.After(result[j].LastSeen) })
-	if len(result) > 100 {
-		result = result[:100]
-	}
 	return result
 }

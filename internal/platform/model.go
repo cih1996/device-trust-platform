@@ -17,6 +17,7 @@ type Signal struct {
 	Reason string `json:"reason,omitempty"`
 }
 type Report struct {
+	Purpose        string              `json:"purpose,omitempty"`
 	Resources      *ResourceAssessment `json:"resources,omitempty"`
 	DeviceID       string              `json:"deviceId,omitempty"`
 	ID             string              `json:"id"`

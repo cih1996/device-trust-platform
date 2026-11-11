@@ -3,7 +3,10 @@ android {
     namespace 'com.device.trust.sample'
     compileSdk 35
     defaultConfig {
-        applicationId 'com.device.trust.sample'; minSdk 24; targetSdk 35; versionCode 6; versionName '0.5.0'
+        applicationId 'com.device.trust.sample'; minSdk 24; targetSdk 35; versionCode 7; versionName '0.6.0'
+        def publicAppId=providers.environmentVariable('DTP_DEMO_APP_ID').getOrElse('')
+        if(publicAppId.isEmpty())throw new GradleException('DTP_DEMO_APP_ID is required')
+        buildConfigField 'String', 'DEMO_APP_ID', '"'+publicAppId+'"'
         testInstrumentationRunner 'com.device.trust.sample.DeviceTrustInstrumentation'
         def pin = providers.environmentVariable('DTP_DEMO_PIN').getOrElse('')
         if (pin.isEmpty()) throw new GradleException('DTP_DEMO_PIN is required for the secured APK')

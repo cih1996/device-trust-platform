@@ -14,6 +14,7 @@ import com.device.trust.RootBeerCollector;
 import com.device.trust.secure.PinnedHttp;
 import com.device.trust.secure.SecureReporter;
 import com.device.trust.secure.ResourceCollector;
+import com.device.trust.secure.DeviceTrustClient;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 
@@ -54,9 +55,25 @@ public class MainActivity extends Activity {
             if(reportId.isEmpty())sendReport();
             finishBusiness();
         }));
-        status=new TextView(this);status.setText("登录后开始体验");status.setTextSize(15);status.setTextIsSelectable(true);status.setPadding(0,24,0,24);layout.addView(status);
+        status=new TextView(this);status.setText("准备登记设备");status.setTextSize(15);status.setTextIsSelectable(true);status.setPadding(0,24,0,24);layout.addView(status);
         ScrollView scroll=new ScrollView(this);scroll.addView(layout);setContentView(scroll);
+        boolean accepted=getSharedPreferences("dtp_consent",MODE_PRIVATE).getBoolean("accepted",false);
+        consent.setChecked(accepted);
+        consent.setOnCheckedChangeListener((view,checked)->{
+            if(!getSharedPreferences("dtp_consent",MODE_PRIVATE).edit().putBoolean("accepted",checked).commit())throw new IllegalStateException("could not save consent");
+            if(checked)initializeDevice();
+        });
+        button(layout,"更新设备档案",()->{if(!consent.isChecked()){show("请先同意采集");return;}initializeDevice();});
+        if(accepted)initializeDevice();else new android.app.AlertDialog.Builder(this).setTitle("设备保护").setMessage("同意采集机型、系统、硬件与网络环境信息，用于设备登记和风险识别。位置信息需另外授权。").setPositiveButton("同意并继续",(dialog,which)->consent.setChecked(true)).setNegativeButton("暂不",(dialog,which)->show("同意采集后可登记设备")).show();
     }
+    private void initializeDevice(){boolean includeLocation=location.isChecked();task(()->{
+        JSONObject result=DeviceTrustClient.initialize(this,new DeviceTrustClient.Config(BuildConfig.DEMO_APP_ID,BuildConfig.DEMO_URL,BuildConfig.SERVER_PINS),true,(ctx,data)->{
+            RootBeerCollector.collect(ctx,data,true);
+            EnvironmentCollector.collect(ctx,data,true,EnvironmentCollector.Collection.WIFI,EnvironmentCollector.Collection.CELL);
+            if(includeLocation)EnvironmentCollector.collect(ctx,data,true,EnvironmentCollector.Collection.LOCATION);
+        });
+        show("设备已登记\n设备 ID："+result.getString("deviceId"));
+    });}
     private void begin(String kind){
         if(token.isEmpty()){show("请先登录");return;}
         if(!consent.isChecked()){show("请先同意本次采集");return;}

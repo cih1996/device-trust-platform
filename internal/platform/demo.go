@@ -123,6 +123,7 @@ func (d *DemoBusiness) Handler() http.Handler {
 	mux.HandleFunc("POST /login", d.login)
 	mux.HandleFunc("POST /prepare", d.prepare)
 	mux.HandleFunc("POST /complete", d.complete)
+	mux.HandleFunc("POST /device/prepare", d.prepareDevice)
 	mux.HandleFunc("GET /health", func(w http.ResponseWriter, r *http.Request) { reply(w, 200, map[string]string{"status": "ok"}) })
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Cache-Control", "no-store")

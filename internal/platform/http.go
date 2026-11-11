@@ -159,6 +159,10 @@ func (s *Server) admin(w http.ResponseWriter, r *http.Request) {
 		reply(w, 200, map[string]string{"key": key})
 	case path == "overview" && r.Method == "GET":
 		s.overview(w, r)
+	case path == "devices" && r.Method == "GET":
+		s.listDevices(w, r)
+	case strings.HasPrefix(path, "devices/") && r.Method == "GET":
+		s.deviceDetails(w, r, strings.TrimPrefix(path, "devices/"))
 	case path == "device-keys/revoke" && r.Method == "POST":
 		s.revokeKey(w, r)
 	case strings.HasPrefix(path, "apps/") && strings.HasSuffix(path, "/policy") && r.Method == "PUT":

@@ -7,6 +7,7 @@ import com.device.trust.RootBeerCollector;
 import com.device.trust.secure.ResourceCollector;
 import com.device.trust.secure.SecureReporter;
 import com.device.trust.secure.PinnedHttp;
+import com.device.trust.secure.DeviceTrustClient;
 import org.json.JSONObject;
 import java.io.File;
 import java.io.FileInputStream;
@@ -25,6 +26,15 @@ public final class ProbeBridge {
     public java.util.List<java.net.Proxy> select(java.net.URI uri){if(!"devicetrust-sdk-api.lingzidev.com".equals(uri.getHost()))throw new IllegalArgumentException("unexpected test destination");return java.util.Collections.singletonList(new java.net.Proxy(java.net.Proxy.Type.HTTP,new java.net.InetSocketAddress("127.0.0.1",19444)));}
     public void connectFailed(java.net.URI uri,java.net.SocketAddress address,java.io.IOException error){android.util.Log.e("DeviceTrustTest",error.toString(),error);}
    });
+  }
+  if(config.optBoolean("startupOnly")){
+   DeviceTrustClient.Config options=new DeviceTrustClient.Config(BuildConfig.DEMO_APP_ID,base,BuildConfig.SERVER_PINS);
+   boolean blocked=false;try{DeviceTrustClient.initialize(context,options,false,null);}catch(IllegalStateException expected){blocked=true;}if(!blocked)throw new IllegalStateException("collection before consent was accepted");
+   final JSONObject[] captured={null};
+   DeviceTrustClient.ExtraCollector extra=(ctx,snapshot)->{RootBeerCollector.collect(ctx,snapshot,true);EnvironmentCollector.collect(ctx,snapshot,true,EnvironmentCollector.Collection.WIFI,EnvironmentCollector.Collection.CELL,EnvironmentCollector.Collection.LOCATION);captured[0]=snapshot;};
+   JSONObject first=DeviceTrustClient.initialize(context,options,true,extra);JSONObject second=DeviceTrustClient.initialize(context,options,true,extra);
+   if(!first.getString("deviceId").equals(second.getString("deviceId")))throw new IllegalStateException("startup identity changed");
+   return new JSONObject().put("consentBlocked",blocked).put("testProxy",config.optBoolean("testProxy")).put("deviceId",second.getString("deviceId")).put("keyId",SecureReporter.keyId(context,BuildConfig.DEMO_APP_ID)).put("reportId",second.getString("reportId")).put("state","registered_before_login").put("retryState","same_device_id").put("report",captured[0]).toString();
   }
   JSONObject login=post(base+"/login",null,new JSONObject().put("accountId",config.getString("account")).put("password",config.getString("password")));
   String appId=login.getString("appId"),session=login.getString("token");
