@@ -18,6 +18,7 @@ import (
 type Server struct {
 	Store      *Store
 	AdminToken string
+	AdminUser  string
 	Trust      *AttestationVerifier
 	Resources  *ResourceEngine
 }
@@ -82,8 +83,12 @@ func (s *Server) app(id string, w http.ResponseWriter) (App, bool) {
 	return a, true
 }
 func (s *Server) admin(w http.ResponseWriter, r *http.Request) {
-	if s.AdminToken == "" || !same(bearer(r), s.AdminToken) {
-		fail(w, 401, errors.New("请重新输入管理口令"))
+	path := strings.TrimPrefix(r.URL.Path, "/api/")
+	if path == "auth/login" && r.Method == "POST" {
+		s.adminLogin(w, r)
+		return
+	}
+	if !s.adminAuth(w, r) {
 		return
 	}
 	if r.URL.Path == "/api/resources" && r.Method == "GET" {
@@ -95,8 +100,9 @@ func (s *Server) admin(w http.ResponseWriter, r *http.Request) {
 		reply(w, 200, map[string]any{"configured": true, "version": e.Catalog.Version, "devices": len(e.Catalog.Devices), "cells": len(e.Catalog.Cells), "regions": len(e.Catalog.Regions), "ipv4": e.V4 != nil, "ipv6": e.V6 != nil})
 		return
 	}
-	path := strings.TrimPrefix(r.URL.Path, "/api/")
 	switch {
+	case path == "auth/password" && r.Method == "PUT":
+		s.changeAdminPassword(w, r)
 	case path == "apps" && r.Method == "GET":
 		apps, err := records[App](s.Store, "apps")
 		if err != nil {
@@ -423,9 +429,19 @@ func (s *Server) overview(w http.ResponseWriter, r *http.Request) {
 	}
 	scenes := map[string]int{"registration": 0, "marketing": 0, "payment": 0, "general": 0}
 	devices := map[string]bool{}
+	now := time.Now().UTC()
+	ipCounts := map[string]int{}
+	riskBuckets := map[string]int{"low": 0, "medium": 0, "high": 0}
+	activity := make([]map[string]any, 12)
+	for i := range activity {
+		activity[i] = map[string]any{"label": now.Add(-time.Duration(11-i) * time.Hour).Format("15:04"), "events": 0, "risk": 0}
+	}
 	review := 0
 	today := 0
-	now := time.Now().UTC()
+	riskTotal := 0
+	highRisk := 0
+	durationTotal := int64(0)
+	durationCount := 0
 	start := now.Add(-24 * time.Hour)
 	for _, e := range events {
 		if appID != "" && appID != e.AppID {
@@ -438,6 +454,28 @@ func (s *Server) overview(w http.ResponseWriter, r *http.Request) {
 		if e.ReceivedAt.After(start) {
 			scenes[sceneFor(e.Type)]++
 			today++
+			riskTotal += e.Score
+			if e.Context.PageDurationMs > 0 {
+				durationTotal += e.Context.PageDurationMs
+				durationCount++
+			}
+			if e.ClientIP != "" {
+				ipCounts[e.ClientIP]++
+			}
+			bucket := "low"
+			if e.Score >= 70 {
+				bucket = "high"
+				highRisk++
+			} else if e.Score >= 30 {
+				bucket = "medium"
+			}
+			riskBuckets[bucket]++
+			hourIndex := int(now.Sub(e.ReceivedAt) / time.Hour)
+			if hourIndex >= 0 && hourIndex < len(activity) {
+				item := activity[len(activity)-1-hourIndex]
+				item["events"] = item["events"].(int) + 1
+				item["risk"] = item["risk"].(int) + e.Score
+			}
 			if e.Decision == "review" {
 				review++
 			}
@@ -465,5 +503,33 @@ func (s *Server) overview(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 	}
-	reply(w, 200, map[string]any{"events": filtered, "resolutions": resolutionMap, "executions": executionMap, "feedback": feedback, "outcomes": latestOutcomes, "scenes": scenes, "profiles": profiles(reports, events, appID), "stats": map[string]int{"events": today, "devices": len(devices), "review": review}})
+	accesses := make([]map[string]any, 0, len(filtered))
+	for _, e := range filtered {
+		riskLevel := "low"
+		if e.Score >= 70 {
+			riskLevel = "high"
+		} else if e.Score >= 30 {
+			riskLevel = "medium"
+		}
+		accesses = append(accesses, map[string]any{"id": e.ID, "appId": e.AppID, "receivedAt": e.ReceivedAt, "deviceId": e.DeviceID, "ip": e.ClientIP, "accountId": e.AccountID, "type": e.Type, "scene": e.Scene, "score": e.Score, "riskLevel": riskLevel, "decision": e.Decision, "action": e.Action, "pageName": e.Context.PageName, "pageDurationMs": e.Context.PageDurationMs})
+	}
+	uniqueIPs := len(ipCounts)
+	averageRisk := 0
+	if today > 0 {
+		averageRisk = riskTotal / today
+	}
+	averageDwellSeconds := int64(0)
+	if durationCount > 0 {
+		averageDwellSeconds = durationTotal / int64(durationCount) / 1000
+	}
+	topIPs := make([]map[string]any, 0, len(ipCounts))
+	for ip, count := range ipCounts {
+		topIPs = append(topIPs, map[string]any{"ip": ip, "count": count})
+	}
+	sort.Slice(topIPs, func(i, j int) bool { return topIPs[i]["count"].(int) > topIPs[j]["count"].(int) })
+	if len(topIPs) > 8 {
+		topIPs = topIPs[:8]
+	}
+	analytics := map[string]any{"activeDevices": len(devices), "uniqueIPs": uniqueIPs, "averageRisk": averageRisk, "highRisk": highRisk, "averageDwellSeconds": averageDwellSeconds, "dwellSamples": durationCount, "riskBuckets": riskBuckets, "activity": activity, "topIPs": topIPs}
+	reply(w, 200, map[string]any{"events": filtered, "accesses": accesses, "resolutions": resolutionMap, "executions": executionMap, "feedback": feedback, "outcomes": latestOutcomes, "scenes": scenes, "profiles": profiles(reports, events, appID), "analytics": analytics, "stats": map[string]int{"events": today, "devices": len(devices), "review": review}})
 }

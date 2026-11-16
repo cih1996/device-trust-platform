@@ -11,6 +11,8 @@ type BusinessContext struct {
 	AmountMinor      int64      `json:"amountMinor,omitempty"`
 	Currency         string     `json:"currency,omitempty"`
 	AccountCreatedAt *time.Time `json:"accountCreatedAt,omitempty"`
+	PageName         string     `json:"pageName,omitempty"`
+	PageDurationMs   int64      `json:"pageDurationMs,omitempty"`
 }
 type Policy struct {
 	Version              string `json:"version"`

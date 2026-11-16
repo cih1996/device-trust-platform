@@ -20,6 +20,7 @@ func main() {
 	roots := flag.String("attestation-roots", "", "trusted attestation root PEM bundle")
 	revocations := flag.String("attestation-revocations", "", "fresh Google revocation snapshot JSON")
 	adminFile := flag.String("admin-token-file", "", "private file containing administrator token")
+	adminUser := flag.String("admin-user", "admin", "administrator account name")
 	adminAddr := flag.String("admin-addr", "", "optional loopback-only HTTP console")
 	proxy := flag.Bool("trusted-loopback-proxy", false, "trust X-Real-IP from local Nginx")
 	catalog := flag.String("resource-catalog", "", "approved device, cell and region catalog JSON")
@@ -39,6 +40,9 @@ func main() {
 	}
 	store, err := platform.Open(*data)
 	if err != nil {
+		log.Fatal(err)
+	}
+	if err = platform.EnsureAdminUser(store, *adminUser, token); err != nil {
 		log.Fatal(err)
 	}
 	var trust *platform.AttestationVerifier
@@ -68,7 +72,7 @@ func main() {
 	if err != nil {
 		log.Fatal(err)
 	}
-	handler := (&platform.Server{Store: store, AdminToken: token, Trust: trust, Resources: resources}).Handler(*web)
+	handler := (&platform.Server{Store: store, AdminToken: token, AdminUser: *adminUser, Trust: trust, Resources: resources}).Handler(*web)
 	if *proxy {
 		handler = platform.TrustLoopbackProxy(handler)
 	}

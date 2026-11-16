@@ -4,8 +4,10 @@
 <div class="mark">衡</div>
 <h1>知衡</h1>
 <p>设备风控工作台</p>
-<label for="token">管理口令</label>
-<input id="token" v-model="token" type="password" required autocomplete="current-password">
+<label for="username">账号</label>
+<input id="username" v-model="username" type="text" autocomplete="username" required>
+<label for="password">密码</label>
+<input id="password" v-model="password" type="password" required autocomplete="current-password">
 <button :disabled="busy">进入工作台 →</button>
 <p v-if="error" class="error" role="alert">{{error}}</p>
 </form>
@@ -24,7 +26,7 @@
 </button>
 <div class="aside-bottom">
 <span class="dot">
-</span> 工作台在线<button @click="logout">退出登录 ↗</button>
+</span> 工作台在线<button class="account-link" @click="settingsOpen=true">账号设置</button><button @click="logout">退出登录 ↗</button>
 </div>
 </aside>
   <main>
@@ -33,10 +35,7 @@
 <div class="toolbar">
 <a class="quiet" href="https://devicetrust.lingzidev.com/docs/" target="_blank" rel="noopener">接入文档 ↗</a>
 <a class="quiet" href="https://devicetrust.lingzidev.com/#downloads" target="_blank" rel="noopener">SDK 下载 ↗</a>
-<select v-model="selected" @change="changeApp" aria-label="选择应用">
-<option value="">全部应用</option>
-<option v-for="app in apps" :value="app.id">{{app.name}}</option>
-</select>
+<span v-if="selected" class="current-app">当前应用：{{appName(selected)}}</span><button v-if="selected" class="quiet" @click="clearApp">全部应用</button>
 <button class="quiet" @click="reload" :disabled="busy">↻ 刷新</button>
 </div>
 </header>
@@ -51,6 +50,7 @@
 <span class="badge">{{workspaceMode}}</span>
 </div>
    <template v-if="section==='apps'">
+    <template v-if="!managedApp">
     <section class="panel">
 <h2>创建应用</h2>
 <form class="create" @submit.prevent="create">
@@ -72,16 +72,22 @@
 <div class="app-icon">{{app.name.slice(0,1)}}</div>
 <h2>{{app.name}}</h2>
 <p>{{app.package}}</p>
+<div class="app-card-meta"><span>{{app.policy.mode==='enforce'?'执行模式':'观察模式'}}</span><span>{{app.security.requireSignedReports?'签名上报已开':'签名上报未开'}}</span></div>
 <label>应用 ID</label>
 <code>{{app.id}}</code>
 <div class="toolbar">
-<button class="quiet" @click="openPolicy(app)">调整策略 ↗</button>
-<button class="quiet" @click="openSecurity(app)">接入保护 ↗</button>
-<button class="quiet" @click="rotate(app)" :disabled="busy">重置密钥 ↗</button>
+<button @click="enterApp(app)" :disabled="busy">进入管理 →</button>
 </div>
 </article>
 </section>
 <div v-if="!apps.length" class="empty">创建第一个应用，开始接入</div>
+    </template>
+    <template v-else>
+    <div class="app-manage-top"><button class="quiet" @click="exitApp">← 返回应用列表</button><span class="badge">应用管理</span></div>
+    <section class="panel app-manage-head"><div class="app-icon">{{managedApp.name.slice(0,1)}}</div><div><span class="eyebrow">APPLICATION PROFILE</span><h2>{{managedApp.name}}</h2><p>{{managedApp.package}}</p><code>{{managedApp.id}}</code></div></section>
+    <div class="stats app-manage-stats"><article><span>过去 24 小时事件</span><strong>{{overview.stats.events.toLocaleString()}}</strong></article><article><span>活跃设备</span><strong>{{overview.stats.devices.toLocaleString()}}</strong></article><article class="risk"><span>待关注事件</span><strong>{{overview.stats.review.toLocaleString()}}</strong></article></div>
+    <section class="panel app-actions"><h2>管理设置</h2><p>进入策略、接入保护和密钥管理。</p><div class="toolbar"><button @click="openPolicy(managedApp)">调整策略 ↗</button><button class="quiet" @click="openSecurity(managedApp)">接入保护 ↗</button><button class="quiet" @click="rotate(managedApp)" :disabled="busy">重置密钥 ↗</button><button class="quiet" @click="goAppOverview">查看风险概览 ↗</button></div></section>
+    </template>
    </template>
    <device-workspace v-else-if="section==='devices'" ref="deviceWorkspace" :api="api" :app-id="selected" :apps="apps"></device-workspace>
    <template v-else>
@@ -101,13 +107,23 @@
 <strong>{{overview.stats.review.toLocaleString()}}</strong>
 <small>建议进一步核验</small>
 </article>
+<article>
+<span>平均页面停留</span>
+<strong>{{overview.analytics.averageDwellSeconds||0}}<small> 秒</small></strong>
+<small>{{overview.analytics.dwellSamples||0}} 条有效样本</small>
+</article>
 </div>
+    <section class="analytics-grid" v-if="section==='overview'">
+      <div class="panel analytics-card"><div class="panel-title"><h2>风险综合评分</h2><span class="muted">过去 24 小时</span></div><div class="risk-score-main"><strong>{{overview.analytics.averageRisk||0}}</strong><span>平均风险分</span></div><div class="risk-buckets"><div v-for="(item,key) in [{key:'low',label:'低风险',color:'low'},{key:'medium',label:'中风险',color:'medium'},{key:'high',label:'高风险',color:'high'}]" class="risk-bucket" :title="item.label+'：'+(overview.analytics.riskBuckets?.[item.key]||0)+' 条访问'"><span>{{item.label}}</span><strong>{{overview.analytics.riskBuckets?.[item.key]||0}}</strong><i :class="['risk-bar',item.color]" :style="{width:Math.min(100,((overview.analytics.riskBuckets?.[item.key]||0)/Math.max(1,overview.stats.events))*100)+'%'}"></i></div></div></div>
+      <div class="panel analytics-card"><div class="panel-title"><h2>访问活跃</h2><span class="muted">每小时访问量</span></div><div class="activity-chart"><div v-for="point in (overview.analytics.activity||[])" class="activity-column" :title="point.label+' · '+point.events+' 次访问 · 平均风险 '+(point.events?Math.round(point.risk/point.events):0)" ><i :style="{height:Math.max(5,Math.min(100,point.events*12))+'%'}"></i><small>{{point.label}}</small></div></div></div>
+      <div class="panel analytics-card"><div class="panel-title"><h2>IP 访问分布</h2><span class="muted">最近 24 小时</span></div><div class="ip-list"><div v-for="item in (overview.analytics.topIPs||[])" class="ip-row"><code>{{item.ip}}</code><span>{{item.count}} 次</span><i :style="{width:Math.min(100,item.count/Math.max(1,overview.analytics.topIPs?.[0]?.count||1)*100)+'%'}"></i></div><div v-if="!(overview.analytics.topIPs||[]).length" class="muted">暂无 IP 访问记录</div></div></div>
+    </section>
     <div class="scene-tabs">
 <button :class="{chosen:scenario===''}" @click="scenario=''">全部</button>
 <button v-for="(label,key) in sceneNames" :class="{chosen:scenario===key}" @click="scenario=key">{{label}} <span>{{overview.scenes[key]}}</span>
 </button>
 </div>
-    <section class="panel event-panel">
+<section class="panel event-panel">
 <div class="panel-title">
 <h2>近期事件 <span class="count">{{events.length}}</span>
 </h2>
@@ -151,6 +167,10 @@
 <h3>暂无事件</h3>
 <p>应用接入后，业务动态将在这里呈现</p>
 </div>
+</section>
+<section class="panel access-panel" v-if="section==='overview'">
+<div class="panel-title"><h2>访问明细 <span class="count">{{accesses.length}}</span></h2><span class="muted">设备、IP 与风险综合评分</span></div>
+<div class="table-scroll"><table><thead><tr><th>访问时间</th><th>设备 ID</th><th>访问 IP</th><th>风险综合评分</th><th>页面停留</th><th>访问结果</th></tr></thead><tbody><tr v-for="access in accesses" :key="access.id" @click="openAccess(access)" class="access-row"><td>{{formatTime(access.receivedAt)}}</td><td><code class="device-id-cell">{{access.deviceId||'未登记设备'}}</code></td><td>{{access.ip||'未提供'}}</td><td><div class="energy-wrap" :title="riskTooltip(access)"><span class="energy-score">{{access.score}}</span><i :class="['energy-bar',riskClass(access.score)]"><b :style="{width:scoreWidth(access.score)+'%'}"></b></i><small>{{riskLabel(access.score)}}</small></div></td><td>{{access.pageDurationMs>0?Math.round(access.pageDurationMs/1000)+' 秒':'未提供'}}</td><td><span :class="['pill',access.decision,access.action]">{{access.action||'观察'}}</span></td></tr></tbody></table></div><div v-if="!accesses.length" class="empty">暂无访问明细</div>
 </section>
    </template>
 </div>
@@ -226,4 +246,5 @@
 </section>
 </div>
 <div v-if="securityApp" class="overlay" @click.self="securityApp=null"><section class="drawer"><button class="close quiet" @click="securityApp=null" aria-label="关闭接入保护">×</button><span class="eyebrow">APP PROTECTION</span><h2>{{securityApp.name}} · 接入保护</h2><form class="policy-form" @submit.prevent="saveSecurity"><label class="check-row"><input type="checkbox" v-model="securityDraft.requireSignedReports">签名上报</label><label class="check-row"><input type="checkbox" v-model="securityDraft.requireHardware">硬件密钥验证</label><label class="check-row"><input type="checkbox" v-model="securityDraft.requireRequestBinding">业务请求绑定</label><label>应用证书指纹<textarea v-model="signerText" rows="4" placeholder="每行一个 SHA-256 指纹"></textarea></label><label>硬件证明有效期（小时）<input type="number" v-model.number="securityDraft.maxEnrollmentHours" min="1" max="168" required></label><p v-if="error" class="error" role="alert">{{error}}</p><button :disabled="busy">保存接入保护</button></form></section></div>
+ <div v-if="settingsOpen" class="overlay" @click.self="settingsOpen=false"><section class="drawer"><button class="close quiet" @click="settingsOpen=false" aria-label="关闭账号设置">×</button><span class="eyebrow">ACCOUNT SECURITY</span><h2>账号设置</h2><p>当前账号：{{username}}</p><form class="policy-form" @submit.prevent="changePassword"><label>当前密码<input v-model="currentPassword" type="password" autocomplete="current-password" required></label><label>新密码<input v-model="newPassword" type="password" autocomplete="new-password" minlength="12" required></label><label>确认新密码<input v-model="confirmPassword" type="password" autocomplete="new-password" minlength="12" required></label><p class="muted">密码至少 12 位。</p><p v-if="error" class="error" role="alert">{{error}}</p><button :disabled="busy">保存新密码</button></form></section></div>
  </div>
