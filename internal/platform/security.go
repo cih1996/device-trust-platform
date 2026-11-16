@@ -117,6 +117,8 @@ type enrollment struct {
 type ReportProof struct {
 	KeyID       string    `json:"keyId"`
 	Level       string    `json:"level"`
+	Issue       string    `json:"attestationIssue,omitempty"`
+	Error       string    `json:"attestationError,omitempty"`
 	ChallengeID string    `json:"challengeId"`
 	EventID     string    `json:"eventId"`
 	PayloadHash string    `json:"payloadHash"`
@@ -217,14 +219,19 @@ func (s *Server) activeKey(app App, id string, security AppSecurity) (deviceKey,
 	if accepted.KeyID != id {
 		return key, hardwareProof{}, errors.New("device enrollment was not accepted")
 	}
-	if (security.RequireHardware || key.Proof.Level == "tee" || key.Proof.Level == "strongbox") && time.Since(key.EnrolledAt) > time.Duration(security.MaxEnrollmentHours)*time.Hour {
+	if security.RequireHardware && time.Since(key.EnrolledAt) > time.Duration(security.MaxEnrollmentHours)*time.Hour {
 		return key, hardwareProof{}, errEnrollmentExpired
 	}
 	proof := key.Proof
 	if proof.Level == "tee" || proof.Level == "strongbox" {
+		// Re-check against current revocations and app settings. Apps that do not
+		// require hardware keep the key and record why the proof no longer holds.
 		proof, err = s.Trust.verify(key.Chain, key.Nonce, app, security)
-		if err != nil {
+		if err != nil && security.RequireHardware {
 			return key, proof, err
+		}
+		if err != nil {
+			proof = hardwareProof{Level: "signature_only", Issue: attestationIssue(err), Error: err.Error(), VerifiedAt: time.Now().UTC()}
 		}
 	}
 	if security.RequireHardware && proof.Level != "tee" && proof.Level != "strongbox" {
@@ -351,12 +358,15 @@ func (s *Server) secure(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	input.Signals["expectedPackage"] = Signal{Status: "available", Value: true}
+	if len(security.SigningDigests) > 0 {
+		input.Signals["expectedSigner"] = signerSignal(input.Signals, security.SigningDigests)
+	}
 	ip, _, err := net.SplitHostPort(r.RemoteAddr)
 	if err != nil {
 		fail(w, 500, err)
 		return
 	}
-	report := Report{ID: digest("secure:" + challenge.ID), AppID: app.ID, InstallationID: "key:" + key.ID, Package: app.Package, Signals: input.Signals, ObservedIP: ip, ReceivedAt: time.Now().UTC(), Proof: &ReportProof{KeyID: key.ID, Level: proof.Level, ChallengeID: challenge.ID, EventID: challenge.EventID, PayloadHash: digest(string(payload)), VerifiedAt: time.Now().UTC(), EnrolledAt: key.Proof.VerifiedAt}}
+	report := Report{ID: digest("secure:" + challenge.ID), AppID: app.ID, InstallationID: "key:" + key.ID, Package: app.Package, Signals: input.Signals, ObservedIP: ip, ReceivedAt: time.Now().UTC(), Proof: &ReportProof{KeyID: key.ID, Level: proof.Level, Issue: proof.Issue, Error: proof.Error, ChallengeID: challenge.ID, EventID: challenge.EventID, PayloadHash: digest(string(payload)), VerifiedAt: time.Now().UTC(), EnrolledAt: key.Proof.VerifiedAt}}
 	deviceID, err := s.registerDevice(app.ID, key.ID)
 	if err != nil {
 		fail(w, 500, err)
@@ -364,6 +374,10 @@ func (s *Server) secure(w http.ResponseWriter, r *http.Request) {
 	}
 	report.DeviceID = deviceID
 	report.Purpose = challenge.Type
+	if report.LinkID, err = s.linkDevice(report); err != nil {
+		fail(w, 500, err)
+		return
+	}
 	if s.Resources != nil {
 		report.Resources, err = s.Resources.Assess(report)
 		if err != nil {
@@ -420,13 +434,15 @@ func (s *Server) enroll(w http.ResponseWriter, frame secureFrame, challenge stor
 		fail(w, 403, err)
 		return
 	}
-	proof := hardwareProof{Level: "signature_only", VerifiedAt: time.Now().UTC()}
-	if security.RequireHardware {
-		proof, err = s.Trust.verify(input.Chain, challenge.Nonce, app, security)
-		if err != nil {
-			fail(w, 403, err)
-			return
-		}
+	// Every enrollment is checked against the attestation roots; only apps that
+	// require hardware reject a failure, the others keep it as evidence.
+	proof, err := s.Trust.verify(input.Chain, challenge.Nonce, app, security)
+	if err != nil && security.RequireHardware {
+		fail(w, 403, err)
+		return
+	}
+	if err != nil {
+		proof = hardwareProof{Level: "signature_only", Issue: attestationIssue(err), Error: err.Error(), VerifiedAt: time.Now().UTC()}
 	}
 	accepted := enrollment{id, digest(string(payload)), proof}
 	if err = s.Store.create("enrollments", challenge.ID, accepted); errors.Is(err, os.ErrExist) {

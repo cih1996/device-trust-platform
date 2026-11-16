@@ -113,3 +113,58 @@ func (c Client) Receipt(ctx context.Context, eventID, receiptID, status, referen
 	var response map[string]any
 	return c.post(ctx, "/v1/executions", map[string]string{"appId": c.AppID, "eventId": eventID, "operationId": permit.OperationID, "token": permit.Token, "receiptId": receiptID, "status": status, "reference": reference}, &response)
 }
+
+// Verdict is the platform's assessment of one device. Score and level combine
+// the device environment with recent business risk; Linked covers the same
+// handset in your other apps.
+type Verdict struct {
+	ReportID      string    `json:"reportId"`
+	DeviceID      string    `json:"deviceId"`
+	LinkID        string    `json:"linkId"`
+	KeyStatus     string    `json:"keyStatus"`
+	RiskScore     int       `json:"riskScore"`
+	RiskLevel     string    `json:"riskLevel"`
+	EnvScore      int       `json:"envScore"`
+	BusinessScore int       `json:"businessScore"`
+	ObservedIP    string    `json:"observedIp"`
+	ReportedAt    time.Time `json:"reportedAt"`
+	Factors       []struct {
+		Code   string `json:"code"`
+		Points int    `json:"points"`
+		Source string `json:"source"`
+	} `json:"factors"`
+	App struct {
+		Package     string `json:"package"`
+		Signer      string `json:"signer"`
+		Attestation string `json:"attestation"`
+		Issue       string `json:"issue"`
+	} `json:"app"`
+	Linked struct {
+		Devices      int `json:"devices"`
+		Apps         int `json:"apps"`
+		MaxRiskScore int `json:"maxRiskScore"`
+		HighRisk     int `json:"highRisk"`
+	} `json:"linked"`
+}
+
+// Verdict assesses a fresh signed report. eventID and accountID must be the
+// ones the backend used when it requested the report's challenge.
+func (c Client) Verdict(ctx context.Context, reportID, eventID, accountID string) (Verdict, error) {
+	var v Verdict
+	err := c.post(ctx, "/v1/verdicts", map[string]string{"appId": c.AppID, "reportId": reportID, "eventId": eventID, "accountId": accountID}, &v)
+	if err == nil && v.ReportID != reportID {
+		err = fmt.Errorf("verdict report mismatch")
+	}
+	return v, err
+}
+
+// Device returns the latest known verdict of a registered device ID. It is
+// history, not proof the device is present; use Verdict for live requests.
+func (c Client) Device(ctx context.Context, deviceID string) (Verdict, error) {
+	var v Verdict
+	err := c.post(ctx, "/v1/devices/query", map[string]string{"appId": c.AppID, "deviceId": deviceID}, &v)
+	if err == nil && v.DeviceID != deviceID {
+		err = fmt.Errorf("verdict device mismatch")
+	}
+	return v, err
+}

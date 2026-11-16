@@ -39,7 +39,7 @@ public final class ProbeBridge {
   JSONObject login=post(base+"/login",null,new JSONObject().put("accountId",config.getString("account")).put("password",config.getString("password")));
   String appId=login.getString("appId"),session=login.getString("token");
   JSONObject prepared=post(base+"/prepare",session,new JSONObject().put("type","reward").put("keyId",SecureReporter.keyId(context,appId)));
-  JSONObject report=DeviceTrust.collect(context,new DeviceTrust.Options(appId,false),true);
+  JSONObject report=DeviceTrust.collect(context,new DeviceTrust.Options(appId,true),true);
   ResourceCollector.collect(context,report,true);RootBeerCollector.collect(context,report,true);
   EnvironmentCollector.collect(context,report,true,EnvironmentCollector.Collection.WIFI,EnvironmentCollector.Collection.CELL,EnvironmentCollector.Collection.LOCATION);
   JSONObject sent=SecureReporter.upload(context,login.getString("platformUrl"),BuildConfig.SERVER_PINS,prepared.getJSONObject("challenge"),report);

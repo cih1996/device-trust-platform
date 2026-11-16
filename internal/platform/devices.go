@@ -266,5 +266,20 @@ func (s *Server) deviceDetails(w http.ResponseWriter, r *http.Request, id string
 	for _, e := range related {
 		rows = append(rows, control.row(e))
 	}
-	reply(w, 200, map[string]any{"profile": selected, "reports": history, "events": rows, "accounts": accounts, "trend": trend, "ips": ipList})
+	links, err := s.deviceLinks()
+	if err != nil {
+		fail(w, 500, err)
+		return
+	}
+	apps, err := records[App](s.Store, "apps")
+	if err != nil {
+		fail(w, 500, err)
+		return
+	}
+	names := map[string]string{}
+	for _, a := range apps {
+		names[a.ID] = a.Name
+	}
+	linked := linkedProfiles(profiles(reports, events, ""), links, names, selected.LinkID, selected.ID)
+	reply(w, 200, map[string]any{"profile": selected, "reports": history, "events": rows, "accounts": accounts, "trend": trend, "ips": ipList, "linked": linked})
 }

@@ -35,6 +35,8 @@ func (s *Server) Handler(web string) http.Handler {
 	mux.HandleFunc("POST /v1/decisions/claim", s.claim)
 	mux.HandleFunc("POST /v1/decisions/resolve", s.resolve)
 	mux.HandleFunc("POST /v1/executions", s.execution)
+	mux.HandleFunc("POST /v1/verdicts", s.reportVerdict)
+	mux.HandleFunc("POST /v1/devices/query", s.deviceVerdict)
 	mux.Handle("/", http.FileServer(http.Dir(web)))
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("X-Content-Type-Options", "nosniff")

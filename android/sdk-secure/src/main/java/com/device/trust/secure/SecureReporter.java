@@ -43,7 +43,8 @@ public final class SecureReporter {
             KeyGenParameterSpec.Builder parameters=new KeyGenParameterSpec.Builder(alias,KeyProperties.PURPOSE_SIGN)
                     .setAlgorithmParameterSpec(new ECGenParameterSpec("secp256r1"))
                     .setDigests(KeyProperties.DIGEST_SHA256);
-            if(challenge.getBoolean("hardwareRequired"))parameters.setAttestationChallenge(nonce);
+            // Always attested: the server verifies package, signer and boot state from the chain.
+            parameters.setAttestationChallenge(nonce);
             generator.initialize(parameters.build());
             generator.generateKeyPair();
             }

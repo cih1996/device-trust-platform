@@ -82,7 +82,7 @@ public class MainActivity extends Activity {
             String keyId=SecureReporter.keyId(this,appId);
             JSONObject prepared=post(business+"/prepare",token,new JSONObject().put("type",kind).put("keyId",keyId));
             eventId=prepared.getString("eventId");challenge=prepared.getJSONObject("challenge");reportId="";pendingType=kind;
-            report=DeviceTrust.collect(this,new DeviceTrust.Options(appId,false),true);
+            report=DeviceTrust.collect(this,new DeviceTrust.Options(appId,true),true);
             ResourceCollector.collect(this,report,true);
             if(includeLocation)EnvironmentCollector.collect(this,report,true,EnvironmentCollector.Collection.WIFI,EnvironmentCollector.Collection.CELL,EnvironmentCollector.Collection.LOCATION);
             RootBeerCollector.collect(this,report,true);

@@ -20,6 +20,7 @@ type Report struct {
 	Purpose        string              `json:"purpose,omitempty"`
 	Resources      *ResourceAssessment `json:"resources,omitempty"`
 	DeviceID       string              `json:"deviceId,omitempty"`
+	LinkID         string              `json:"linkId,omitempty"`
 	ID             string              `json:"id"`
 	AppID          string              `json:"appId"`
 	InstallationID string              `json:"installationId"`
@@ -72,6 +73,19 @@ func evaluateDevice(e *Event, r Report, history []Event, add func(int, string)) 
 	}
 	if r.Package != "" && r.Signals["expectedPackage"].Value == false {
 		add(30, "package_mismatch")
+	}
+	if s := r.Signals["expectedSigner"]; s.Status == "available" && s.Value == false {
+		add(40, "app_signature_mismatch")
+	}
+	if r.Proof != nil {
+		switch r.Proof.Issue {
+		case "app_mismatch":
+			add(60, "attested_app_mismatch")
+		case "revoked":
+			add(40, "attestation_revoked")
+		case "boot_unlocked":
+			add(25, "attested_boot_unlocked")
+		}
 	}
 	runtimeIntegrity(r, add)
 	accounts := map[string]bool{e.AccountID: true}
@@ -157,4 +171,5 @@ func runtimeIntegrity(r Report, add func(int, string)) {
 	if signalTrue(r, "adbEnabled") {
 		add(5, "adb_enabled")
 	}
+	environmentConsistency(r, add)
 }

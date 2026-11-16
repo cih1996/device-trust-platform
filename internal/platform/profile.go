@@ -10,6 +10,7 @@ type Profile struct {
 	KeyStatus      string     `json:"keyStatus"`
 	ID             string     `json:"id"`
 	DeviceID       string     `json:"deviceId,omitempty"`
+	LinkID         string     `json:"linkId,omitempty"`
 	RiskScore      int        `json:"riskScore"`
 	RiskLevel      string     `json:"riskLevel"`
 	EnvScore       int        `json:"envScore"`
@@ -84,6 +85,7 @@ func profiles(reports []Report, events []Event, appID string) []Profile {
 			p.LastSeen = r.ReceivedAt
 			p.LatestReport = r
 			p.DeviceID = r.DeviceID
+			p.LinkID = r.LinkID
 		}
 	}
 	for i := range events {

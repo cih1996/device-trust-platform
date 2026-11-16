@@ -1,7 +1,7 @@
 <script setup>
 import { ref, computed, watch } from 'vue'
 import { api } from '../api.js'
-import { route, setQuery, href } from '../router.js'
+import { route, setQuery, href, go } from '../router.js'
 import { appId, appName, revision, report, openEvent, changed } from '../store.js'
 import { fullTime, dateTime, relative, region, gib, levelNames } from '../format.js'
 import { reasonName, sourceNames, sceneNames, statusNames } from '../risk-display.js'
@@ -77,6 +77,15 @@ const runtime = computed(() => {
     ['已开启无障碍服务', sig('accessibilityServices')],
     ['用户空间', box ? (box.userId === 0 ? '主用户' : '用户 ' + box.userId) : null],
     ['数据目录', box ? box.dataDir + (box.ownDataDir ? '' : '（非本应用目录）') : null],
+    ['启动状态', n?.bootState ? Object.entries(n.bootState).map(([k, v]) => k + ' = ' + v).join('\n') || '未读取到' : null],
+    ['Root 属性', listText(n?.rootProperties)],
+    ['Root 挂载', listText(n?.rootMounts)],
+    ['SELinux 域', n?.selinuxContext],
+    ['承载网卡', sig('activeInterface')],
+    ['网卡', Array.isArray(n?.interfaces) ? n.interfaces.map(i => i.name + ' ' + i.family + ' ' + i.scope).join('\n') : null],
+    ['SIM 运营商', sig('simOperator')],
+    ['注册网络', sig('operator')],
+    ['漫游', sig('networkRoaming')],
   ] }
 })
 const networkHistory = computed(() => {
@@ -97,6 +106,14 @@ function display(value) {
 }
 const purpose = v => ({ device_init: '首次登记', device_refresh: '启动更新', register: '注册场景', reward: '营销场景', payment: '支付场景' }[v] || '业务上报')
 const proof = v => (!v ? '未签名' : v.level === 'tee' || v.level === 'strongbox' ? '硬件证明通过' : '签名已验证')
+const attestIssue = { boot_unlocked: 'Bootloader 未锁定', app_mismatch: '包名或签名不符', revoked: '证明证书已吊销', unverified: '未通过' }
+const attestation = v => (!v ? '未签名' : v.level === 'tee' || v.level === 'strongbox' ? '通过（' + v.level.toUpperCase() + '）' : attestIssue[v.attestationIssue] || '未提交证明')
+const signerCheck = computed(() => {
+  const s = r.value?.signals?.expectedSigner
+  if (!s) return '未配置应用证书'
+  return s.status !== 'available' ? '未上报' : s.value ? '一致' : '不一致'
+})
+const linkMethod = v => ({ android_id: '同一开发者设备标识', boot_session: '同一次开机', new: '首次登记' }[v] || v)
 const transport = v => ({ wifi: 'Wi-Fi', cellular: '移动网络', ethernet: '有线网络', other: '其他网络' }[v] || '暂不可用')
 const signalStatus = key => {
   const s = r.value?.signals?.[key]
@@ -259,6 +276,8 @@ async function revoke() {
             <dt>应用版本</dt><dd>{{ application.versionName }} · {{ application.versionCode }}</dd>
             <dt>安装来源</dt><dd>{{ application.installer || '来源未提供' }}</dd>
             <dt>签名 SHA-256</dt><dd><code v-for="d in application.signers" :key="d" class="digest">{{ d }}</code></dd>
+            <dt>签名校验</dt><dd>{{ signerCheck }}</dd>
+            <dt>硬件证明</dt><dd :title="r.proof?.attestationError">{{ attestation(r.proof) }}</dd>
           </dl>
           <p v-else class="muted" style="margin:0">本次上报没有应用版本与签名信息</p>
         </div>
@@ -329,6 +348,16 @@ async function revoke() {
     </template>
 
     <template v-if="tab === 'history'">
+      <section class="card" style="margin-bottom:16px">
+        <div class="card-head"><h2>同一手机的其他应用</h2><span class="sub">{{ data.linked.length }} 个</span></div>
+        <div class="table-wrap">
+          <table v-if="data.linked.length">
+            <thead><tr><th>应用</th><th>设备 ID</th><th>关联依据</th><th class="right">风险分</th><th>最近活跃</th></tr></thead>
+            <tbody><tr v-for="d in data.linked" :key="d.id" class="click" @click="go('devices', d.id, { app: appId })"><td>{{ d.appName || d.appId }}</td><td class="mono">{{ d.deviceId || '未登记' }}</td><td>{{ linkMethod(d.method) }}</td><td class="right"><LevelTag :level="d.riskLevel" /> <span class="num">{{ d.riskScore }}</span></td><td :title="fullTime(d.lastSeen)">{{ relative(d.lastSeen) }}</td></tr></tbody>
+          </table>
+          <div v-else class="empty">没有在其他应用中发现这台手机</div>
+        </div>
+      </section>
       <div class="grid g-2" style="margin-bottom:16px">
         <section class="card">
           <div class="card-head"><h2>关联账号</h2><span class="sub">{{ data.accounts.length }} 个</span></div>

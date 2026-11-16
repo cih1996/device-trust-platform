@@ -20,6 +20,27 @@ import (
 
 var attestationOID = asn1.ObjectIdentifier{1, 3, 6, 1, 4, 1, 11129, 2, 1, 17}
 
+// Attestation failures that say something about the device or the app, as
+// opposed to a missing or unverifiable chain.
+var (
+	errAttestBoot    = errors.New("verified boot and locked bootloader required")
+	errAttestApp     = errors.New("attested application identity mismatch")
+	errAttestRevoked = errors.New("attestation certificate revoked")
+)
+
+// attestationIssue names the scoring category of a verification error.
+func attestationIssue(err error) string {
+	switch {
+	case errors.Is(err, errAttestBoot):
+		return "boot_unlocked"
+	case errors.Is(err, errAttestApp):
+		return "app_mismatch"
+	case errors.Is(err, errAttestRevoked):
+		return "revoked"
+	}
+	return "unverified"
+}
+
 type AttestationVerifier struct {
 	Roots          *x509.CertPool
 	RevocationFile string
@@ -39,6 +60,8 @@ func LoadAttestationVerifier(rootsFile, revocationsFile string) (*AttestationVer
 
 type hardwareProof struct {
 	Level      string    `json:"level"`
+	Issue      string    `json:"issue,omitempty"`
+	Error      string    `json:"error,omitempty"`
 	BootLocked bool      `json:"bootLocked"`
 	BootState  int       `json:"bootState"`
 	OSPatch    int       `json:"osPatch"`
@@ -192,7 +215,7 @@ func (v *AttestationVerifier) verify(chain []string, nonce []byte, app App, secu
 	}
 	for _, cert := range trustedChain {
 		if entry, found := status.Entries[strings.ToLower(cert.SerialNumber.Text(16))]; found {
-			return proof, fmt.Errorf("attestation certificate %s: %s %s", cert.SerialNumber.Text(16), entry.Status, entry.Reason)
+			return proof, fmt.Errorf("%w: %s %s %s", errAttestRevoked, cert.SerialNumber.Text(16), entry.Status, entry.Reason)
 		}
 	}
 	var desc keyDescription
@@ -218,7 +241,7 @@ func (v *AttestationVerifier) verify(chain []string, nonce []byte, app App, secu
 		return proof, err
 	}
 	if !boot.Locked || boot.State != 0 {
-		return proof, errors.New("verified boot and locked bootloader required")
+		return proof, errAttestBoot
 	}
 	var origin int
 	if err = unmarshalDER(hardware[702], &origin); err != nil {
@@ -250,12 +273,16 @@ func (v *AttestationVerifier) verify(chain []string, nonce []byte, app App, secu
 		return proof, err
 	}
 	if len(identity.Packages) != 1 || string(identity.Packages[0].Name) != app.Package {
-		return proof, errors.New("attested application package mismatch")
+		return proof, fmt.Errorf("%w: package", errAttestApp)
 	}
-	if len(identity.Digests) == 0 || len(security.SigningDigests) == 0 {
+	if len(identity.Digests) == 0 || (security.RequireHardware && len(security.SigningDigests) == 0) {
 		return proof, errors.New("application signing certificate allowlist required")
 	}
+	// Without an allowlist the package is still attested; the signer is reported unverified.
 	for _, digest := range identity.Digests {
+		if len(security.SigningDigests) == 0 {
+			break
+		}
 		allowed := false
 		for _, expected := range security.SigningDigests {
 			if hex.EncodeToString(digest) == expected {
@@ -263,7 +290,7 @@ func (v *AttestationVerifier) verify(chain []string, nonce []byte, app App, secu
 			}
 		}
 		if !allowed {
-			return proof, errors.New("attested application signing certificate mismatch")
+			return proof, fmt.Errorf("%w: signing certificate", errAttestApp)
 		}
 	}
 	patch := 0

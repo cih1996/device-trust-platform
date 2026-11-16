@@ -1,40 +1,65 @@
-<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>接入手册 · DeviceTrust</title><link rel="stylesheet" href="/style.css"><link rel="icon" href="/favicon.svg"></head><body><nav><a class="brand" href="/"><b>衡</b>DeviceTrust</a><div class="navlinks"><a href="/#downloads">SDK 下载</a><a class="button" href="https://devicetrust-console.lingzidev.com/">工作台 ↗</a></div></nav><main class="doc-layout"><aside class="doc-nav"><a href="#start">接入准备</a><a href="#android">Android SDK</a><a href="#business">业务服务端</a><a href="#enforcement">处置链路</a><a href="#protocol">安全协议</a><a href="#test">在线体验</a><a href="#errors">错误与排查</a></aside><article><span class="tag">INTEGRATION · 0.6.0</span><h1>DeviceTrust 接入手册</h1><p>先在工作台创建应用，再连接 Android SDK 与业务服务。应用密钥只保存在业务服务端。</p>
-<section id="start"><h2>01 / 接入准备</h2><div class="table-scroll"><table><tr><th>入口</th><th>地址</th></tr><tr><td>工作台</td><td>https://devicetrust-console.lingzidev.com</td></tr><tr><td>业务与上报 API</td><td>https://devicetrust-sdk-api.lingzidev.com</td></tr><tr><td>版本</td><td>Android SDK 0.6.0 / Android 7.0+ / 四种 ABI</td></tr></table></div><ol><li>在“应用管理”创建应用，包名填写 Android applicationId。</li><li>保存创建时展示的应用 ID 与应用密钥，后者只展示一次。</li><li>“接入保护”默认开启签名上报。硬件证明需要配置 APK 证书 SHA-256，再开启并进行目标机型验收。</li><li>策略先使用观察模式评估风险；确认业务处置已接入后切换执行模式。</li></ol></section>
-<section id="android"><h2>02 / Android SDK</h2><p><a class="inline-link" href="/downloads/devicetrust-sdk-0.6.0.zip">下载 SDK 包</a>，将 sdk-0.6.0.aar 和 sdk-secure-0.6.0.aar 放入 app/libs。可选模块独立引入；安全模块包含已经混淆的原生库。</p><pre><code>// app/build.gradle
+<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>接入手册 · DeviceTrust</title><link rel="stylesheet" href="/style.css"><link rel="icon" href="/favicon.svg"></head><body><nav><a class="brand" href="/"><b>衡</b>DeviceTrust</a><div class="navlinks"><a href="/#downloads">SDK 下载</a><a class="button" href="https://devicetrust-console.lingzidev.com/">工作台 ↗</a></div></nav><main class="doc-layout"><aside class="doc-nav"><a href="#start">接入准备</a><a href="#android">Android SDK</a><a href="#flow">整体流程</a><a href="#verdict">查询设备环境</a><a href="#events">业务事件</a><a href="#identity">应用身份</a><a href="#links">跨应用关联</a><a href="#samples">其他语言</a><a href="#codes">规则代码</a><a href="#enforcement">处置链路</a><a href="#errors">错误与排查</a></aside><article><span class="tag">INTEGRATION · 0.7.1</span><h1>DeviceTrust 接入手册</h1><p>App 负责采集和签名上报，所有判断都在服务端完成。业务后端用应用密钥查询设备环境和业务风险，结论不经过 App。</p>
+
+<section id="start"><h2>01 / 接入准备</h2><div class="table-scroll"><table><tr><th>入口</th><th>地址</th></tr><tr><td>工作台</td><td>https://devicetrust-console.lingzidev.com</td></tr><tr><td>业务与上报 API</td><td>https://devicetrust-sdk-api.lingzidev.com</td></tr><tr><td>版本</td><td>Android SDK 0.7.1 / Android 7.0+ / 四种 ABI</td></tr></table></div><ol><li>在“应用管理”创建应用，包名填写 Android applicationId。</li><li>保存创建时展示的应用 ID（appId，公开）与应用密钥（appKey，只展示一次，只放在业务后端）。</li><li>在“接入保护”填写 APK 签名证书 SHA-256（<code>apksigner verify --print-certs app.apk</code>）。平台据此比对签名并核对硬件证明。</li><li>业务后端实现 <code>POST /device/prepare</code>，见下文。</li><li>策略先用观察模式评估风险；确认业务处置已接入后再切换执行模式。</li></ol><div class="table-scroll"><table><tr><th>名称</th><th>说明</th></tr><tr><td>deviceId</td><td>App 安装的设备密钥登记后签发，同一 App 内稳定；不能作为登录或授权凭据</td></tr><tr><td>linkId</td><td>同一台手机在你多个 App 中的设备归为一组</td></tr><tr><td>eventId</td><td>业务后端生成的请求唯一 ID，持久保存以支持重试</td></tr><tr><td>reportId</td><td>一次签名上报，App 上传后得到，交回业务后端查询</td></tr></table></div></section>
+
+<section id="android"><h2>02 / Android SDK</h2><p><a class="inline-link" href="/downloads/devicetrust-sdk-0.7.1.zip">下载 SDK 包</a>，将 sdk 与 sdk-secure 的 aar 放入 app/libs。可选模块独立引入；安全模块包含已经混淆的原生库。</p><pre><code>// app/build.gradle
 dependencies {
-    implementation files('libs/sdk-0.6.0.aar')
-    implementation files('libs/sdk-secure-0.6.0.aar')
-    // 可选：sdk-environment、sdk-rootbeer
-    // RootBeer 适配还需 com.scottyab:rootbeer-lib:0.1.2
-}</code></pre><h3>首次启动登记</h3><p>用户同意后，在后台线程初始化；登录前即可取得设备 ID，后续启动复用密钥并更新档案。businessUrl 指向你的业务服务，公开的启动接口只签发采集挑战。应用密钥保留在服务端。</p><pre><code>DeviceTrustClient.Config config = new DeviceTrustClient.Config(
+  implementation files('libs/sdk-0.7.1.aar')
+  implementation files('libs/sdk-secure-0.7.1.aar')
+  // 可选：sdk-environment、sdk-rootbeer
+}</code></pre><h3>启动登记</h3><p>用户同意后，在后台线程初始化。登录前即可取得设备 ID；后续启动复用密钥并更新档案。</p><pre><code>DeviceTrustClient.Config config = new DeviceTrustClient.Config(
     appId, businessUrl, pins);
 JSONObject initialized = DeviceTrustClient.initialize(
     context, config, true, null);
-String deviceId = initialized.getString("deviceId");</code></pre><p>导入 com.device.trust.secure.DeviceTrustClient。业务服务实现 POST /device/prepare，接收 appId、installationId、keyId，返回 appId、platformUrl 和完整 challenge。按应用范围、启动观察身份和请求摘要签发 device_init / device_refresh 挑战，限制公开入口流量。此接口不发放业务执行授权；完整约定见 SDK 包 docs/startup-0.6.md。</p><h3>关键业务上报</h3><p>在用户同意采集后，于后台线程调用。challenge 由你的业务服务创建后返回 App，businessToken 是业务登录会话；完整在线体验代码在 SDK 包 examples 中。</p><pre><code>String api = "https://devicetrust-sdk-api.lingzidev.com";
-String[] pins = {"AU7LGDAFJUgs4HkcpRf1O7/6OU9avVMvle6wTsAK5m4="};
-String keyId = SecureReporter.keyId(context, appId);
-// 将 keyId 提交给业务服务，取得绑定本次业务的 challenge。
+String deviceId = initialized.getString("deviceId");</code></pre><p>SDK 调用 <code>{businessUrl}/device/prepare</code>，请求体为 appId、installationId、keyId。业务后端代为申请 device_init（keyId 非空时为 device_refresh）挑战，返回 appId、platformUrl 和完整 challenge。这个公开入口只登记设备，不发放业务授权，需要限流。</p><h3>关键业务上报</h3><pre><code>String keyId = SecureReporter.keyId(context, appId);
+// 把 keyId 交给业务后端，取得绑定本次请求的 challenge
 JSONObject report = DeviceTrust.collect(context,
-    new DeviceTrust.Options(appId, false), true);
+    new DeviceTrust.Options(appId, true), true);
+ResourceCollector.collect(context, report, true);
 JSONObject result = SecureReporter.upload(
     context, api, pins, challenge, report);
 String reportId = result.getString("reportId");
-// reportId 回传业务服务进行事件评估与执行授权。</code></pre><p>导入 com.device.trust.DeviceTrust 与 com.device.trust.secure.SecureReporter。SDK 会生成 Keystore 密钥、注册证明并提交二进制帧。密钥注册过期时，服务端下发新注册挑战。pin 为 API 证书 SPKI 的 SHA-256/Base64，证书公钥轮换需先发布包含新旧 pin 的 SDK 配置。</p></section>
-<section id="binding"><h2>业务接口与防重放</h2><p>设备 ID 只标识已登记密钥，不能直接授权业务。SDK 通过 SecureReporter.deviceId(context, appId) 读取服务端登记 ID；签名密钥复用期间 ID 保持，同型号设备分别持有 ID。</p><p>业务服务器必须认证当前账号，将接口方法、路径、订单、金额、币种、收款对象等完整业务意图规范化后计算 SHA-256，保存为 requestHash。该摘要由业务服务器生成，不能信任客户端传入的摘要。</p><p>挑战与事件的 context.requestHash 保持一致；执行前在 /v1/decisions/claim 顶层提交当前请求重新计算的 requestHash。换账号、改金额或换目标就不能使用旧授权。同一操作重复请求在业务数据库按 operationId 唯一约束去重，支付渠道使用同一幂等键。</p><p>SDK 下载包包含 Go 服务端 businessguard 接入组件，会核对请求摘要、操作、应用、事件、执行模式和到期时间。它应放在真实业务处理函数中，取得授权后才提交业务效果。完整资源验真与联调限制见下载包 docs/environment-0.5.md。</p></section><section id="business"><h2>03 / 业务服务端</h2><p>所有业务接口使用 Authorization: Bearer &lt;应用密钥&gt;。账号、订单和金额来自业务服务，不采用客户端自报值。eventId 在应用内唯一，并持久保存以支持重试。</p><pre><code>POST /v1/challenges
-Content-Type: application/json
-Authorization: Bearer &lt;APP_KEY&gt;
+// reportId 交回业务后端查询结论</code></pre><p>pin 为 API 证书 SPKI 的 SHA-256/Base64；证书公钥轮换前需先发布包含新旧 pin 的版本。SDK 会采集 ANDROID_ID 用于跨应用关联，请在隐私政策中写明“设备标识用于安全风控”。</p></section>
 
+<section id="flow"><h2>03 / 整体流程</h2><pre><code>用户发起登录、注册、领券、支付
+  App ──► 业务后端：认证账号，生成 eventId、requestHash
+          业务后端 ──► POST /v1/challenges（绑定账号、eventId、requestHash）
+  App 采集并上报 ──► /v1/secure ──► reportId
+  App ──► 业务后端：提交 reportId
+          业务后端 ──► POST /v1/verdicts   查询设备环境
+                   └─► POST /v1/events     评估业务事件（可选）
+          按结论放行、加验证或拒绝</code></pre><p>所有后端接口使用 <code>Authorization: Bearer &lt;appKey&gt;</code>。挑战 3 分钟有效、只能使用一次，并绑定账号、eventId 与 requestHash，偷来的报告无法挪用到别的账号或请求。</p><pre><code>POST /v1/challenges
 {
   "appId": "APP_ID",
-  "eventId": "registration-20261111-001",
-  "accountId": "ACCOUNT_ID",
-  "type": "register",
+  "eventId": "login-20261116-0001",
+  "accountId": "u_10086",
+  "type": "login",
   "clientIp": "203.0.113.10",
   "context": {"requestHash": "REQUEST_SHA256"},
-  "keyId": ""
-}</code></pre><p>首次 keyId 为空，其后填写 SDK 返回的 keyId。挑战有效期 3 分钟，将响应原样交给 SDK。得到 reportId 后，使用原挑战的账号、类型、IP 与上下文提交：</p><pre><code>POST /v1/events
+  "keyId": "App 传来的 keyId，首次为空"
+}</code></pre><p>requestHash 是后端对方法、路径、账号和完整业务参数计算的 SHA-256，不能接受 App 传来的值。把响应原样交给 App。</p></section>
+
+<section id="verdict"><h2>04 / 查询设备环境</h2><p>拿到 App 交回的 reportId 后查询。eventId、accountId 必须与申请挑战时一致，否则返回 403；报告超过 15 分钟返回 410。</p><pre><code>POST /v1/verdicts
 Authorization: Bearer &lt;APP_KEY&gt;
 
+{"appId": "APP_ID", "reportId": "REPORT_ID",
+ "eventId": "login-20261116-0001", "accountId": "u_10086"}</code></pre><pre><code>{
+  "deviceId": "…", "linkId": "…", "keyStatus": "active",
+  "riskScore": 85, "riskLevel": "high",
+  "envScore": 85, "businessScore": 0,
+  "factors": [
+    {"code": "boot_state_spoofed", "points": 40, "source": "client"},
+    {"code": "network_interface_mismatch", "points": 30, "source": "client"}
+  ],
+  "app": {"package": "com.example.app", "signer": "matched",
+          "attestation": "none", "issue": "boot_unlocked"},
+  "linked": {"devices": 1, "apps": 1, "maxRiskScore": 90, "highRisk": 1},
+  "observedIp": "113.87.130.104",
+  "reportedAt": "2026-11-16T10:00:00Z"
+}</code></pre><div class="table-scroll"><table><tr><th>字段</th><th>含义</th></tr><tr><td>riskScore / riskLevel</td><td>0–100，等于 max(envScore, businessScore)；low &lt; 30 ≤ medium &lt; 70 ≤ high</td></tr><tr><td>envScore</td><td>本次上报的设备环境分</td></tr><tr><td>businessScore</td><td>该设备 7 天内业务事件的最高分</td></tr><tr><td>factors</td><td>命中的规则，见规则代码</td></tr><tr><td>keyStatus</td><td>active；revoked 表示已在工作台停用</td></tr><tr><td>app.signer</td><td>matched 一致；mismatch 不符（疑似重打包）；unknown 未上报；unconfigured 未填写证书</td></tr><tr><td>app.attestation</td><td>tee / strongbox 表示硬件确认包名、签名且启动链锁定；none 表示未通过</td></tr><tr><td>app.issue</td><td>硬件证明未通过的原因：boot_unlocked、app_mismatch、revoked、unverified</td></tr><tr><td>linked</td><td>这台手机在你其他 App 中的设备数、应用数、最高风险分和高风险设备数</td></tr></table></div><p>建议：high 时拒绝或要求短信、人脸等更强核验；medium 时加验证；app.signer 为 mismatch 或 app.issue 为 app_mismatch 时直接拒绝；linked.highRisk &gt; 0 表示这台手机在别的 App 中出现过高风险。</p><h3>按设备 ID 查询历史</h3><pre><code>POST /v1/devices/query
+{"appId": "APP_ID", "deviceId": "DEVICE_ID"}</code></pre><p>返回这台设备最近一次上报的结论，格式相同。它只是历史档案，不能证明设备此刻在场；实时请求请用 /v1/verdicts。</p></section>
+
+<section id="events"><h2>05 / 业务事件评估</h2><p>需要多账号、同设备集中注册、重复领取、支付工具轮换等业务维度风险时提交事件。账号、类型、IP 与 context 必须与挑战一致。</p><pre><code>POST /v1/events
 {
   "appId": "APP_ID",
   "eventId": "registration-20261111-001",
@@ -43,8 +68,35 @@ Authorization: Bearer &lt;APP_KEY&gt;
   "type": "register",
   "clientIp": "203.0.113.10",
   "context": {"requestHash": "REQUEST_SHA256"}
-}</code></pre><p>type 为 register、reward、payment 或业务自定义事件类型。营销 context 使用 campaignId、recipientId；支付使用 orderId、paymentMethodId、amountMinor、currency。金额按最小货币单位。支付工具和收款对象使用业务侧去标识化代号，不上传完整卡号。响应包含 score、action、mode、reasons 与策略版本；action 为 observe、verify、hold。</p></section>
-<section id="enforcement"><h2>04 / 连接实际处置</h2><p>执行模式下，核验或暂缓事件须先取得批准。业务服务应在完成真实核验后提交结果，或交由工作台审批。</p><pre><code>POST /v1/decisions/resolve
+}</code></pre><p>type 为 register、reward、payment 或自定义类型。营销 context 使用 campaignId、recipientId；支付使用 orderId、paymentMethodId、amountMinor、currency，金额按最小货币单位。响应包含 score、action（observe、verify、hold）、mode、reasons 与策略版本。</p></section>
+
+<section id="identity"><h2>06 / 应用身份校验</h2><p>同一个 appId 只应由你自己签名的 App 使用。平台从两个层面判断：</p><ol><li><strong>签名比对</strong>（每次上报）：SDK 上报 APK 签名摘要，与“接入保护”中的证书比对，不一致命中 app_signature_mismatch。这一层由 App 自报，被 Hook 时可能伪造。</li><li><strong>硬件证明</strong>（设备登记时）：SDK 生成密钥时总会附带平台挑战，Android Keystore 签发证书链。平台用 Google 根证书和每日更新的吊销列表验证证书链，读取硬件写入的包名、签名和启动状态。包名或签名不符、证书吊销（如泄露的 keybox）、Bootloader 未锁定分别计分；全部通过时 app.attestation 为 tee 或 strongbox。</li></ol><p>默认情况下证明未通过只计分，不拒绝上报。在“接入保护”开启“硬件证明”后，未通过的设备会被直接拒绝，适合支付等高风险业务；开启前应先在目标机型上验收。</p></section>
+
+<section id="links"><h2>07 / 跨应用设备关联</h2><p>每个 App 有各自的设备密钥，所以 deviceId 按 App 区分。平台另外计算 linkId，把同一台手机在你多个 App 中的设备归为一组：</p><div class="table-scroll"><table><tr><th>依据</th><th>条件</th></tr><tr><td>同一开发者设备标识</td><td>各 App 使用同一个签名证书。Android 8 起 ANDROID_ID 按签名证书和用户隔离，同一签名的 App 在同一台手机上读到相同的值。</td></tr><tr><td>同一次开机</td><td>硬件参数一致，且开机时刻相差不超过 2 秒。不依赖签名，两个 App 需在同一次开机期间上报过。</td></tr></table></div><p>关联建立后会保存，手机重启或 App 重装后依然有效：重装后得到新的 deviceId，linkId 不变。工作台“设备 → 关联与轨迹”列出同一台手机在其他 App 中的设备。verdict 只给出 linked 汇总，不会把其他 App 的 deviceId 透露给当前后端。</p><div class="note">关联需要 SDK 0.7.1 及以上。关联依据来自客户端，可能被改机工具篡改，只能作为风险线索，不能作为身份证明。</div></section>
+
+<section id="samples"><h2>08 / 后端示例</h2><h3>Go</h3><pre><code>guard := businessguard.Client{BaseURL: api, AppID: appID, AppKey: appKey}
+verdict, err := guard.Verdict(ctx, reportID, eventID, accountID)
+if err != nil { return err } // 失败不当作“通过”
+if verdict.RiskLevel == "high" || verdict.App.Signer == "mismatch" {
+    // 拒绝或加验证
+}</code></pre><h3>Java 11+</h3><pre><code>HttpRequest request = HttpRequest.newBuilder(URI.create(api + "/v1/verdicts"))
+    .header("Authorization", "Bearer " + appKey)
+    .header("Content-Type", "application/json")
+    .POST(HttpRequest.BodyPublishers.ofString(body)) // appId、reportId、eventId、accountId
+    .build();
+HttpResponse&lt;String&gt; response = HttpClient.newHttpClient()
+    .send(request, HttpResponse.BodyHandlers.ofString());
+if (response.statusCode() != 200) throw new IllegalStateException(response.body());</code></pre><h3>Node.js 18+</h3><pre><code>const response = await fetch(`${api}/v1/verdicts`, {
+  method: 'POST',
+  headers: { Authorization: `Bearer ${appKey}`, 'Content-Type': 'application/json' },
+  body: JSON.stringify({ appId, reportId, eventId, accountId }),
+})
+if (!response.ok) throw new Error(`${response.status} ${await response.text()}`)
+const verdict = await response.json()</code></pre><p>请求失败时不要把设备当作安全处理，应按业务的失败策略拒绝或要求重试。Go 组件 businessguard 在 SDK 包 server 目录中。</p></section>
+
+<section id="codes"><h2>09 / 规则代码</h2><p>分值为试行值，会随样本校准。</p><div class="table-scroll"><table><tr><th>代码</th><th>含义</th><th>分值</th></tr><tr><td>boot_state_spoofed</td><td>启动状态被篡改（多处读数矛盾）</td><td>40</td></tr><tr><td>bootloader_unlocked</td><td>Bootloader 已解锁</td><td>20</td></tr><tr><td>root_properties / root_mounts</td><td>Root 框架属性 / Root 挂载痕迹</td><td>35 / 40</td></tr><tr><td>selinux_domain</td><td>应用不在正常的 SELinux 域</td><td>30</td></tr><tr><td>build_tags_mismatch</td><td>系统签名标记矛盾</td><td>25</td></tr><tr><td>network_interface_mismatch</td><td>声称的网络类型与实际网卡不符</td><td>30</td></tr><tr><td>sim_network_mismatch</td><td>SIM 与注册网络矛盾</td><td>20–25</td></tr><tr><td>cellular_ip_carrier_mismatch</td><td>移动数据出口运营商与 SIM 不符</td><td>20</td></tr><tr><td>hook_framework / hook_threads</td><td>Hook 框架痕迹 / 注入线程</td><td>40 / 30</td></tr><tr><td>native_debugger / debugger</td><td>调试器附加</td><td>25 / 15</td></tr><tr><td>emulator_traits / emulator_hint / x86_runtime</td><td>模拟器线索</td><td>35 / 20 / 15</td></tr><tr><td>virtual_container / secondary_user</td><td>多开容器 / 分身空间</td><td>30 / 5</td></tr><tr><td>app_debuggable</td><td>应用为可调试版本</td><td>30</td></tr><tr><td>app_signature_mismatch</td><td>上报签名与登记证书不符</td><td>40</td></tr><tr><td>attested_app_mismatch</td><td>硬件证明：包名或签名不符</td><td>60</td></tr><tr><td>attestation_revoked</td><td>硬件证明证书已吊销</td><td>40</td></tr><tr><td>attested_boot_unlocked</td><td>硬件证明：Bootloader 未锁定</td><td>25</td></tr><tr><td>http_proxy / vpn / adb_enabled</td><td>代理 / VPN / USB 调试</td><td>10 / 5 / 5</td></tr><tr><td>资源验真类</td><td>机型参数、内存、系统应用签名、基站与定位、IP 区域等矛盾</td><td>合计最多 50</td></tr><tr><td>业务类</td><td>multiple_accounts_24h、registration_device_cluster、campaign_*、payment_* 等</td><td>按策略</td></tr></table></div></section>
+
+<section id="enforcement"><h2>10 / 连接实际处置</h2><p>执行模式下，核验或暂缓事件须先取得批准。业务服务应在完成真实核验后提交结果，或交由工作台审批。</p><pre><code>POST /v1/decisions/resolve
 {"appId":"APP_ID","eventId":"EVENT_ID",
  "resolutionId":"VERIFY_RESULT_ID","status":"approved"}
 
@@ -56,7 +108,6 @@ POST /v1/executions
 {"appId":"APP_ID","eventId":"EVENT_ID",
  "operationId":"BUSINESS_OPERATION_ID","token":"CLAIM_TOKEN",
  "receiptId":"RECEIPT_ID","status":"succeeded",
- "reference":"BUSINESS_REFERENCE"}</code></pre><p>上述请求都需要应用密钥。claim 的 token 与 expiresAt 是执行凭据，首次领取限事件或批准后 5 分钟内；业务必须检查到期时间，在自己的数据库按 operationId 原子幂等提交。相同授权重试用于恢复回执，不启动第二次业务效果。支付真实回调通过 /v1/outcomes 进行结果回流，字段见下载包 integration.md 与 business-risk.md。</p></section>
-<section id="protocol"><h2>05 / 签名与设备真实性</h2><p>TLS 校验证书链、主机名和 SPKI；设备报告使用 DTP4 二进制帧、P-256 ECDH、HKDF-SHA256、AES-256-GCM 和 SHA256withECDSA。签名覆盖头与密文，服务端将挑战绑定到账号和业务。NDK 编排密码调用，Keystore 私钥不导出，四架构原生库经 xollvm 混淆。</p><p>signature_only 表示持钥签名；tee/strongbox 表示通过硬件证明。硬件证明校验可信根、撤销状态、挑战、启动锁定、包名和 APK 签名。证明反映注册时状态，不保证其后所有信号真实。设备被完全控制时，混淆与固定证书也不能保证绝对不可抓包。完整帧格式与约束见 SDK 包 secure-protocol.md。</p></section>
-<section id="test"><h2>06 / 在线体验</h2><ol><li><a class="inline-link" href="/downloads/devicetrust-0.6.0.apk">下载并安装体验 APK</a>，默认服务已配置，无需 USB 端口转发。</li><li>打开后同意采集，先取得设备 ID；再用管理员提供的体验密码登录，尝试注册、奖励或支付。</li><li>进入工作台查看事件。遇到等待核验/审核，在事件详情处理，再回 App 点“查询并继续”。</li></ol><div class="note">在线体验使用独立应用与演示账本。真实项目请创建自己的应用并接入自己的账号、核验与支付服务。两路 MI 8 SE 已完成启动联调；硬件证明与真实蜂窝定位仍待目标环境验收。</div></section>
-<section id="errors"><h2>07 / 排查与重试</h2><div class="table-scroll"><table><tr><th>状态</th><th>处理</th></tr><tr><td>401</td><td>检查业务应用密钥或登录会话。</td></tr><tr><td>403</td><td>查看原始 error：证明、业务绑定、停用密钥或审批状态不满足。</td></tr><tr><td>409</td><td>同一 ID 已用于不同内容，修正幂等数据，不能覆盖旧记录。</td></tr><tr><td>410</td><td>挑战、注册或授权过期，按对应流程重新发起。</td></tr><tr><td>TLS / pin mismatch</td><td>核对服务域名、证书链与 SPKI，不能关闭证书验证。</td></tr></table></div><p>服务端原始错误会保留。记录 eventId、reportId、发生时间和完整错误，排查时避免附带应用密钥或用户敏感信息。</p></section></article></main><footer><a href="/">← DeviceTrust</a><span>接入手册 · 0.6.0</span></footer></body></html>
+ "reference":"BUSINESS_REFERENCE"}</code></pre><p>claim 的 token 与 expiresAt 是执行凭据，首次领取限事件或批准后 5 分钟内。业务必须检查到期时间，在自己的数据库按 operationId 原子幂等提交。支付真实回调通过 /v1/outcomes 回流，字段见 SDK 包 docs/business-risk.md。</p></section>
+
+<section id="errors"><h2>11 / 排查与重试</h2><div class="table-scroll"><table><tr><th>状态</th><th>处理</th></tr><tr><td>400</td><td>请求格式或必填字段错误，查看 error。</td></tr><tr><td>401</td><td>检查应用密钥。</td></tr><tr><td>403</td><td>报告属于其他应用或其他业务请求、密钥已停用、要求硬件证明但未通过。</td></tr><tr><td>404</td><td>应用、报告或设备不存在。</td></tr><tr><td>409</td><td>同一 ID 已用于不同内容，修正幂等数据，不能覆盖旧记录。</td></tr><tr><td>410</td><td>挑战或报告过期，让 App 重新采集。</td></tr><tr><td>TLS / pin mismatch</td><td>核对服务域名、证书链与 SPKI，不能关闭证书验证。</td></tr></table></div><p>服务端原始错误会保留。记录 eventId、reportId、发生时间和完整错误，排查时不要附带应用密钥或用户敏感信息。</p></section></article></main><footer><a href="/">← DeviceTrust</a><span>接入手册 · 0.7.1</span></footer></body></html>
