@@ -29,15 +29,18 @@ createApp({
    const data=await response.json();if(!response.ok) throw Error(data.error);return data
   }
   async function act(action){error.value='';busy.value=true;try{await action()}catch(e){error.value=e.message}finally{busy.value=false}}
-  async function refresh(){apps.value=await api('apps');overview.value=await api('overview?appId='+encodeURIComponent(selected.value))}
+  function routeHash(path){const next='#/'+path.replace(/^\//,'');if(location.hash!==next)history.pushState({},'',next)}
+  function readRoute(){const parts=location.hash.replace(/^#\/?/,'').split('/').filter(Boolean);if(parts[0]==='app'&&parts[1]){selected.value=decodeURIComponent(parts[1]);const page=parts[2]||'overview';section.value=page==='settings'?'apps':page;managedApp.value=null}else{selected.value='';section.value='apps';managedApp.value=null;if(!location.hash)history.replaceState({},'', '#/apps')}}
+  function navigate(page){if(!selected.value){routeHash('apps');section.value='apps';return}managedApp.value=null;section.value=page;routeHash('app/'+encodeURIComponent(selected.value)+'/'+page)}
+  async function refresh(){apps.value=await api('apps');if(section.value==='apps'&&selected.value)managedApp.value=apps.value.find(app=>app.id===selected.value)||null;overview.value=await api('overview?appId='+encodeURIComponent(selected.value))}
   function login(){act(async()=>{const response=await fetch('/api/auth/login',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({username:username.value,password:password.value})});const data=await response.json();if(!response.ok)throw Error(data.error);token.value=data.token;window.localStorage.setItem('dtp_admin_session',data.token);window.sessionStorage.setItem('dtp_admin_session',data.token);password.value='';await refresh();signedIn.value=true})}
-  async function restoreSession(){if(!token.value)return;try{await refresh();signedIn.value=true}catch(err){token.value='';window.localStorage.removeItem('dtp_admin_session');window.sessionStorage.removeItem('dtp_admin_session');error.value=''}}
+  async function restoreSession(){readRoute();if(!token.value)return;try{await refresh();signedIn.value=true}catch(err){token.value='';window.localStorage.removeItem('dtp_admin_session');window.sessionStorage.removeItem('dtp_admin_session');error.value=''}}
   function changeApp(){act(refresh)}
-  function clearApp(){act(async()=>{selected.value='';await refresh()})}
-  function enterApp(app){act(async()=>{managedApp.value=null;selected.value=app.id;section.value='overview';await refresh()})}
-  function openAppSettings(app){act(async()=>{managedApp.value=app;selected.value=app.id;section.value='apps';await refresh()})}
-  function exitApp(){managedApp.value=null;selected.value='';section.value='apps';act(refresh)}
-  function goAppOverview(){section.value='overview'}
+  function clearApp(){act(async()=>{selected.value='';managedApp.value=null;section.value='apps';routeHash('apps');await refresh()})}
+  function enterApp(app){act(async()=>{managedApp.value=null;selected.value=app.id;section.value='overview';routeHash('app/'+encodeURIComponent(app.id)+'/overview');await refresh()})}
+  function openAppSettings(app){act(async()=>{managedApp.value=app;selected.value=app.id;section.value='apps';routeHash('app/'+encodeURIComponent(app.id)+'/settings');await refresh()})}
+  function exitApp(){managedApp.value=null;selected.value='';section.value='apps';routeHash('apps');act(refresh)}
+  function goAppOverview(){managedApp.value=null;navigate('overview')}
   function reload(){if(section.value==='devices')deviceWorkspace.value?.reload();else act(refresh)}
   function openPolicy(app){policyApp.value=app;policyDraft.value={...app.policy}}
   function openSecurity(app){securityApp.value=app;securityDraft.value={...app.security};signerText.value=app.security.signingDigests.join('\n')}
@@ -56,10 +59,10 @@ createApp({
   const riskLabel=score=>score>=70?'高风险':score>=30?'中风险':'低风险'
   const riskTooltip=access=>`风险综合评分 ${access.score}/100 · ${riskLabel(access.score)} · ${access.ip||'未提供 IP'} · ${access.deviceId||'未登记设备'}`
   function openAccess(access){const event=overview.value.events.find(item=>item.id===access.id);if(event)openEvent(event)}
-  onMounted(restoreSession)
+  onMounted(()=>{window.addEventListener('popstate',readRoute);window.addEventListener('hashchange',readRoute);restoreSession()})
   const appName=id=>apps.value.find(a=>a.id===id)?.name||id
   const formatTime=value=>new Date(value).toLocaleString('zh-CN',{hour12:false})
-  return {api,deviceWorkspace,changeApp,clearApp,enterApp,openAppSettings,exitApp,goAppOverview,managedApp,token,username,password,currentPassword,newPassword,confirmPassword,settingsOpen,signedIn,apps,overview,selected,section,error,busy,name,packageName,newKey,query,detail,sectionNames,signalNames,signalValue,reasons,events,accesses,login,reload,create,rotate,logout,changePassword,appName,formatTime,sceneNames,actionNames,reviewNames,fieldNames,outcomeNames,scenario,policyApp,policyDraft,policyFields,reviewNote,openPolicy,savePolicy,openEvent,openAccess,review,securityApp,securityDraft,signerText,workspaceMode,proofName,gateState,openSecurity,saveSecurity,resolve,scoreWidth,riskClass,riskLabel,riskTooltip}
+  return {api,deviceWorkspace,changeApp,clearApp,enterApp,openAppSettings,exitApp,goAppOverview,navigate,managedApp,token,username,password,currentPassword,newPassword,confirmPassword,settingsOpen,signedIn,apps,overview,selected,section,error,busy,name,packageName,newKey,query,detail,sectionNames,signalNames,signalValue,reasons,events,accesses,login,reload,create,rotate,logout,changePassword,appName,formatTime,sceneNames,actionNames,reviewNames,fieldNames,outcomeNames,scenario,policyApp,policyDraft,policyFields,reviewNote,openPolicy,savePolicy,openEvent,openAccess,review,securityApp,securityDraft,signerText,workspaceMode,proofName,gateState,openSecurity,saveSecurity,resolve,scoreWidth,riskClass,riskLabel,riskTooltip}
  },
  template
 }).mount('#app')

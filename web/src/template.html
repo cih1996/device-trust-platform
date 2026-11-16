@@ -16,11 +16,11 @@
   <aside>
 <a class="brand" href="/"> <span class="mark">衡</span> 知衡</a>
 <span class="caption">工作空间</span>
-<button :class="{active:section==='overview'}" @click="section='overview'" title="风险概览">◫ <span>风险概览</span>
+<button :class="{active:section==='overview'}" @click="navigate('overview')" title="风险概览">◫ <span>风险概览</span>
 </button>
-<button :class="{active:section==='events'}" @click="section='events'" title="风险事件">☷ <span>风险事件</span>
+<button :class="{active:section==='events'}" @click="navigate('events')" title="风险事件">☷ <span>风险事件</span>
 </button>
-<button :class="{active:section==='devices'}" @click="section='devices'" title="设备档案">▣ <span>设备档案</span>
+<button :class="{active:section==='devices'}" @click="navigate('devices')" title="设备档案">▣ <span>设备档案</span>
 </button>
 <div class="aside-bottom">
 <span class="dot">
@@ -33,7 +33,7 @@
 <div class="toolbar">
 <a class="quiet" href="https://devicetrust.lingzidev.com/docs/" target="_blank" rel="noopener">接入文档 ↗</a>
 <a class="quiet" href="https://devicetrust.lingzidev.com/#downloads" target="_blank" rel="noopener">SDK 下载 ↗</a>
-<span v-if="selected" class="current-app">当前应用：{{appName(selected)}}</span><button v-if="selected" class="quiet" @click="clearApp">全部应用</button>
+<span v-if="selected" class="current-app">当前应用：{{appName(selected)}}</span><button v-if="selected" class="switch-app" @click="clearApp">← 切换应用</button>
 <button class="quiet" @click="reload" :disabled="busy">↻ 刷新</button>
 </div>
 </header>
