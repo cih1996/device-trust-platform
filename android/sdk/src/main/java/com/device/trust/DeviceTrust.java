@@ -100,6 +100,8 @@ public final class DeviceTrust {
      * enabled accessibility services (count only), and whether the app runs in a secondary user
      * or a virtual container whose data directory does not belong to this package.
      */
+    // Literal /data paths are compared, never opened: they identify a relocated (virtualized) sandbox.
+    @android.annotation.SuppressLint("SdCardPath")
     static void runtime(Context app, JSONObject signals) throws JSONException {
         ApplicationInfo info = app.getApplicationInfo();
         available(signals, "appDebuggable", (info.flags & ApplicationInfo.FLAG_DEBUGGABLE) != 0);
