@@ -245,7 +245,7 @@ td.right, th.right { text-align: right; }
 
 dl.kv { display: grid; grid-template-columns: max-content 1fr; gap: 8px 16px; margin: 0; font-size: 13px; }
 dl.kv dt { color: var(--muted); }
-dl.kv dd { margin: 0; min-width: 0; overflow-wrap: anywhere; }
+dl.kv dd { margin: 0; min-width: 0; overflow-wrap: anywhere; white-space: pre-line; }
 .section-title { font-size: 13px; font-weight: 600; margin-bottom: 8px; display: flex; justify-content: space-between; align-items: center; }
 
 .factor { display: grid; grid-template-columns: 1fr auto; gap: 2px 12px; padding: 10px 0; border-bottom: 1px solid var(--line); }

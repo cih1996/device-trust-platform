@@ -309,6 +309,11 @@ func (e *ResourceEngine) Assess(r Report) (*ResourceAssessment, error) {
 			}
 		}
 	}
+	ipISP, ipCountry := "", ""
+	if result.IP != nil {
+		ipISP, ipCountry = result.IP.ISP, result.IP.Country
+	}
+	carrierChecks(r, ipISP, ipCountry, add)
 	var gps gpsObservation
 	gpsErr := signalObject(r, "location", &gps)
 	fresh := gpsErr == nil && gps.Age != nil && *gps.Age >= 0 && *gps.Age <= 120000 && gps.Accuracy != nil && *gps.Accuracy > 0 && *gps.Accuracy <= 5000 && gps.Latitude >= -90 && gps.Latitude <= 90 && gps.Longitude >= -180 && gps.Longitude <= 180 && gps.Coordinates == "WGS84"

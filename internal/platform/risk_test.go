@@ -188,3 +188,71 @@ func TestRuntimeIntegritySignals(t *testing.T) {
 		t.Fatalf("clean device should only note the secondary user: %v", got)
 	}
 }
+
+func TestEnvironmentConsistency(t *testing.T) {
+	av := func(v any) Signal { return Signal{Status: "available", Value: v} }
+	spoofed := Report{Signals: map[string]Signal{
+		"integrityNative": av(map[string]any{
+			"bootState":      map[string]any{"ro.boot.verifiedbootstate": "green", "ro.vendor.boot.verifiedbootstate": "orange"},
+			"rootProperties": []any{"persist.zygisk.enabled"},
+			"rootMounts":     []any{"/data/adb"},
+			"selinuxContext": "u:r:magisk:s0",
+			"interfaces":     []any{map[string]any{"name": "eth0", "family": "ipv4", "scope": "private"}, map[string]any{"name": "rmnet_data0", "family": "ipv6", "scope": "linklocal"}},
+		}),
+		"osInfo":    av(map[string]any{"display": "AP3A dev-keys", "tags": "release-keys"}),
+		"transport": av("cellular"),
+	}}
+	got := map[string]int{}
+	environmentConsistency(spoofed, func(points int, code string) { got[code] = points })
+	want := map[string]int{"boot_state_spoofed": 40, "root_properties": 35, "root_mounts": 40, "selinux_domain": 30, "build_tags_mismatch": 25, "network_interface_mismatch": 30}
+	if len(got) != len(want) {
+		t.Fatalf("got %v want %v", got, want)
+	}
+	for code, points := range want {
+		if got[code] != points {
+			t.Fatalf("%s: got %d want %d", code, got[code], points)
+		}
+	}
+
+	clean := Report{Signals: map[string]Signal{
+		"integrityNative": av(map[string]any{
+			"bootState":      map[string]any{"ro.boot.verifiedbootstate": "green", "ro.boot.flash.locked": "1"},
+			"selinuxContext": "u:r:untrusted_app_32:s0:c512,c768",
+			"interfaces":     []any{map[string]any{"name": "rmnet_data0", "family": "ipv4", "scope": "cgnat"}},
+		}),
+		"osInfo":          av(map[string]any{"display": "AP3A release-keys", "tags": "release-keys"}),
+		"transport":       av("cellular"),
+		"activeInterface": av("rmnet_data0"),
+	}}
+	environmentConsistency(clean, func(points int, code string) { t.Fatalf("clean device hit %s", code) })
+
+	unlocked := Report{Signals: map[string]Signal{"integrityNative": av(map[string]any{"bootState": map[string]any{"ro.boot.verifiedbootstate": "orange"}})}}
+	got = map[string]int{}
+	environmentConsistency(unlocked, func(points int, code string) { got[code] = points })
+	if len(got) != 1 || got["bootloader_unlocked"] != 20 {
+		t.Fatal(got)
+	}
+}
+
+func TestCarrierChecks(t *testing.T) {
+	av := func(v any) Signal { return Signal{Status: "available", Value: v} }
+	run := func(sim, network, ipISP string, roaming bool) map[string]int {
+		got := map[string]int{}
+		r := Report{Signals: map[string]Signal{"simOperator": av(sim), "operator": av(network), "networkRoaming": av(roaming), "transport": av("cellular")}}
+		carrierChecks(r, ipISP, "中国", func(code, state, _, _, _ string, points int) { got[code+"/"+state] = points })
+		return got
+	}
+	if got := run("46003", "46000", "电信", false); got["sim_network_mismatch/conflict"] != 25 || got["cellular_ip_carrier/matched"] != 0 {
+		t.Fatal(got)
+	}
+	// Telecom and Unicom share their radio network.
+	if got := run("46011", "46001", "电信", false); got["sim_network/matched"] != 0 || len(got) != 2 {
+		t.Fatal(got)
+	}
+	if got := run("46000", "46000", "联通", false); got["cellular_ip_carrier_mismatch/conflict"] != 20 {
+		t.Fatal(got)
+	}
+	if got := run("46003", "46000", "电信", true); got["sim_network/unknown"] != 0 || len(got) != 2 {
+		t.Fatal(got)
+	}
+}

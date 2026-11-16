@@ -6,12 +6,14 @@
 #include <errno.h>
 
 static bool jsonText(JNIEnv* env,jobject json,const char* name,const char* value){
-    jobject result=call(env,json,"put","(Ljava/lang/String;Ljava/lang/Object;)Lorg/json/JSONObject;",env->NewStringUTF(name),env->NewStringUTF(value));
-    if(result)env->DeleteLocalRef(result);return !env->ExceptionCheck();
+    jstring key=env->NewStringUTF(name),text=env->NewStringUTF(value);
+    jobject result=call(env,json,"put","(Ljava/lang/String;Ljava/lang/Object;)Lorg/json/JSONObject;",key,text);
+    if(result)env->DeleteLocalRef(result);if(key)env->DeleteLocalRef(key);if(text)env->DeleteLocalRef(text);return !env->ExceptionCheck();
 }
 static bool jsonLong(JNIEnv* env,jobject json,const char* name,jlong value){
-    jobject result=call(env,json,"put","(Ljava/lang/String;J)Lorg/json/JSONObject;",env->NewStringUTF(name),value);
-    if(result)env->DeleteLocalRef(result);return !env->ExceptionCheck();
+    jstring key=env->NewStringUTF(name);
+    jobject result=call(env,json,"put","(Ljava/lang/String;J)Lorg/json/JSONObject;",key,value);
+    if(result)env->DeleteLocalRef(result);if(key)env->DeleteLocalRef(key);return !env->ExceptionCheck();
 }
 OBF static jstring resources(JNIEnv* env,jclass){
     if(env->EnsureLocalCapacity(256)<0)return nullptr;

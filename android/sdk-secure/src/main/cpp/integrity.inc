@@ -4,10 +4,15 @@
 #if defined(__ANDROID__)
 #include <dirent.h>
 #include <ctype.h>
+#include <ifaddrs.h>
+#include <dlfcn.h>
+#include <net/if.h>
+#include <netinet/in.h>
 
 static bool jsonArrayPut(JNIEnv* env,jobject array,const char* value){
-    jobject result=call(env,array,"put","(Ljava/lang/Object;)Lorg/json/JSONArray;",env->NewStringUTF(value));
-    if(result)env->DeleteLocalRef(result);return !env->ExceptionCheck();
+    jstring text=env->NewStringUTF(value);
+    jobject result=call(env,array,"put","(Ljava/lang/Object;)Lorg/json/JSONArray;",text);
+    if(result)env->DeleteLocalRef(result);if(text)env->DeleteLocalRef(text);return !env->ExceptionCheck();
 }
 static bool containsFold(const char* text,const char* needle){
     size_t n=strlen(needle);
@@ -28,6 +33,42 @@ static const char* const EMULATOR_FILES[]={
     "/system/bin/ldinit","/system/lib/libldutils.so","/system/bin/microvirtd","/system/bin/genybaseband"
 };
 static const char* const EMULATOR_HARDWARE[]={"goldfish","ranchu","vbox86","nox","ttvm","android_x86"};
+
+
+// Property names left by root and hook frameworks. Names only; values are not reported.
+static const char* const ROOT_PROPS[]={"magisk","kernelsu","ksu.","apatch","zygisk","lsposed","xposed","riru","shamiko","playintegrity","trickystore","tricky_store"};
+// Boot and bootloader state. Hiding tools rewrite ro.boot.verifiedbootstate but often miss the copies.
+static const char* const BOOT_PROPS[]={"verifiedbootstate","vbmeta_state","vbmeta.device_state","flash.locked","veritymode"};
+// Mount sources or targets that only appear when root overlays are visible to this process.
+static const char* const ROOT_MOUNTS[]={"magisk","/data/adb","kernelsu","ksu","apatch","zygisk","/debug_ramdisk"};
+
+struct PropScan{JNIEnv* env;jobject boot,root;size_t bootCount,rootCount;};
+static void propMatch(PropScan* scan,const char* name,const char* value){
+    if(scan->env->ExceptionCheck())return;
+    for(const char* marker:BOOT_PROPS)if(containsFold(name,marker)&&scan->bootCount<32){jsonText(scan->env,scan->boot,name,value);scan->bootCount++;break;}
+    for(const char* marker:ROOT_PROPS)if(containsFold(name,marker)&&scan->rootCount<32){jsonArrayPut(scan->env,scan->root,name);scan->rootCount++;break;}
+}
+// API 26+ exposes full-length names through the callback reader; the legacy reader truncates at 32 bytes.
+typedef void (*PropReadCallback)(const prop_info*,void (*)(void*,const char*,const char*,uint32_t),void*);
+static PropReadCallback propReader;
+static void propReceived(void* cookie,const char* name,const char* value,uint32_t){propMatch((PropScan*)cookie,name,value);}
+static void propVisit(const prop_info* info,void* cookie){
+    if(propReader){propReader(info,propReceived,cookie);return;}
+    char name[PROP_NAME_MAX],value[PROP_VALUE_MAX];
+    if(__system_property_read(info,name,value)>=0)propMatch((PropScan*)cookie,name,value);
+}
+// Address class only: the server needs to know which interfaces carry traffic, not the addresses.
+// Returns a code; string literals are produced at the use site because string encryption
+// decrypts them into storage that does not outlive the function that names them.
+enum {SCOPE_LOOPBACK,SCOPE_LINKLOCAL,SCOPE_PRIVATE,SCOPE_CGNAT,SCOPE_PUBLIC};
+static int addressScope(const struct sockaddr* addr){
+    if(addr->sa_family==AF_INET){uint32_t a=ntohl(((const struct sockaddr_in*)addr)->sin_addr.s_addr);
+        if((a>>24)==127)return SCOPE_LOOPBACK;if((a>>16)==0xA9FE)return SCOPE_LINKLOCAL;
+        if((a>>24)==10||(a>>20)==0xAC1||(a>>16)==0xC0A8)return SCOPE_PRIVATE;if((a>>22)==(0x64400000u>>22))return SCOPE_CGNAT;return SCOPE_PUBLIC;}
+    const struct in6_addr* v6=&((const struct sockaddr_in6*)addr)->sin6_addr;const uint8_t* b=v6->s6_addr;
+    if(IN6_IS_ADDR_LOOPBACK(v6))return SCOPE_LOOPBACK;
+    if(b[0]==0xfe&&(b[1]&0xc0)==0x80)return SCOPE_LINKLOCAL;if((b[0]&0xfe)==0xfc)return SCOPE_PRIVATE;return SCOPE_PUBLIC;
+}
 
 OBF static jstring integrity(JNIEnv* env,jclass){
     if(env->EnsureLocalCapacity(256)<0)return nullptr;
@@ -72,6 +113,50 @@ OBF static jstring integrity(JNIEnv* env,jclass){
         if(access(path,F_OK)==0)jsonArrayPut(env,emulator,path);
         else if(errno!=ENOENT&&errno!=ENOTDIR)jsonText(env,errors,path,strerror(errno));
     }
+
+    jobject boot=construct(env,"org/json/JSONObject","()V");NEED(boot);
+    jobject rootProps=construct(env,"org/json/JSONArray","()V");NEED(rootProps);
+    PropScan scan={env,boot,rootProps,0,0};propReader=(PropReadCallback)dlsym(RTLD_DEFAULT,"__system_property_read_callback");
+    if(__system_property_foreach(propVisit,&scan)<0)jsonText(env,errors,"properties","property area unavailable");
+    NEED(boot);if(env->ExceptionCheck())return nullptr;
+
+    jobject mounts=construct(env,"org/json/JSONArray","()V");NEED(mounts);
+    file=fopen("/proc/self/mountinfo","r");
+    if(file){const char* reported[sizeof(ROOT_MOUNTS)/sizeof(ROOT_MOUNTS[0])];size_t count=0;char line[1024];
+        while(fgets(line,sizeof(line),file))for(const char* marker:ROOT_MOUNTS){if(!containsFold(line,marker))continue;
+            bool duplicate=false;for(size_t j=0;j<count;j++)if(reported[j]==marker)duplicate=true;
+            if(!duplicate){reported[count++]=marker;jsonArrayPut(env,mounts,marker);}}
+        fclose(file);
+    } else jsonText(env,errors,"mountinfo",strerror(errno));
+
+    jobject interfaces=construct(env,"org/json/JSONArray","()V");NEED(interfaces);
+    struct ifaddrs* list=nullptr;
+    if(getifaddrs(&list)==0){char seen[32][48];size_t seenCount=0;
+        for(struct ifaddrs* it=list;it;it=it->ifa_next){
+            if(!it->ifa_addr||!it->ifa_name||!(it->ifa_flags&IFF_UP))continue;
+            if(it->ifa_addr->sa_family!=AF_INET&&it->ifa_addr->sa_family!=AF_INET6)continue;
+            int code=addressScope(it->ifa_addr);if(code==SCOPE_LOOPBACK)continue;
+            char scope[16];
+            switch(code){case SCOPE_LINKLOCAL:strcpy(scope,"linklocal");break;case SCOPE_PRIVATE:strcpy(scope,"private");break;
+                case SCOPE_CGNAT:strcpy(scope,"cgnat");break;default:strcpy(scope,"public");}
+            char key[48];snprintf(key,sizeof(key),"%s|%d|%d",it->ifa_name,it->ifa_addr->sa_family,code);
+            bool duplicate=false;for(size_t j=0;j<seenCount;j++)if(strcmp(seen[j],key)==0)duplicate=true;
+            if(duplicate||seenCount==32)continue;strcpy(seen[seenCount++],key);
+            jobject item=construct(env,"org/json/JSONObject","()V");NEED(item);
+            jsonText(env,item,"name",it->ifa_name);jsonText(env,item,"family",it->ifa_addr->sa_family==AF_INET?"ipv4":"ipv6");jsonText(env,item,"scope",scope);
+            jobject result=call(env,interfaces,"put","(Ljava/lang/Object;)Lorg/json/JSONArray;",item);
+            if(result)env->DeleteLocalRef(result);env->DeleteLocalRef(item);if(env->ExceptionCheck()){freeifaddrs(list);return nullptr;}
+        }
+        freeifaddrs(list);
+    } else jsonText(env,errors,"interfaces",strerror(errno));
+
+    file=fopen("/proc/self/attr/current","r");
+    if(file){char context[256]={0};if(fgets(context,sizeof(context),file)){context[strcspn(context,"\r\n")]=0;jsonText(env,json,"selinuxContext",context);}fclose(file);}
+    else jsonText(env,errors,"selinuxContext",strerror(errno));
+    call(env,json,"put","(Ljava/lang/String;Ljava/lang/Object;)Lorg/json/JSONObject;",env->NewStringUTF("bootState"),boot);
+    call(env,json,"put","(Ljava/lang/String;Ljava/lang/Object;)Lorg/json/JSONObject;",env->NewStringUTF("rootProperties"),rootProps);
+    call(env,json,"put","(Ljava/lang/String;Ljava/lang/Object;)Lorg/json/JSONObject;",env->NewStringUTF("rootMounts"),mounts);
+    call(env,json,"put","(Ljava/lang/String;Ljava/lang/Object;)Lorg/json/JSONObject;",env->NewStringUTF("interfaces"),interfaces);
     call(env,json,"put","(Ljava/lang/String;Ljava/lang/Object;)Lorg/json/JSONObject;",env->NewStringUTF("hooks"),hooks);
     call(env,json,"put","(Ljava/lang/String;Ljava/lang/Object;)Lorg/json/JSONObject;",env->NewStringUTF("hookThreads"),threads);
     call(env,json,"put","(Ljava/lang/String;Ljava/lang/Object;)Lorg/json/JSONObject;",env->NewStringUTF("emulator"),emulator);

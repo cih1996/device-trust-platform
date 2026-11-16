@@ -73,6 +73,7 @@ public final class DeviceTrust {
             status(signals,"vpn","unavailable","no active network");
             status(signals,"transport","unavailable","no active network");
             status(signals,"httpProxy","unavailable","no active network");
+            status(signals,"activeInterface","unavailable","no active network");
         } else {
             available(signals,"vpn",caps.hasTransport(NetworkCapabilities.TRANSPORT_VPN));
             available(signals,"transport",caps.hasTransport(NetworkCapabilities.TRANSPORT_WIFI)?"wifi":caps.hasTransport(NetworkCapabilities.TRANSPORT_CELLULAR)?"cellular":caps.hasTransport(NetworkCapabilities.TRANSPORT_ETHERNET)?"ethernet":"other");
@@ -81,6 +82,10 @@ public final class DeviceTrust {
             if (proxy == null) proxy = cm.getDefaultProxy();
             if (proxy != null && proxy.getHost() != null && !proxy.getHost().isEmpty()) available(signals,"httpProxy",new JSONObject().put("host",proxy.getHost()).put("port",proxy.getPort()));
             else available(signals,"httpProxy",false);
+            // Kernel interface carrying the default network; compared with the claimed transport.
+            String iface = link == null ? null : link.getInterfaceName();
+            if (iface == null || iface.isEmpty()) status(signals,"activeInterface","unavailable","no interface name");
+            else available(signals,"activeInterface",iface);
             available(signals,"networkSnapshot",new JSONObject().put("wifi",caps.hasTransport(NetworkCapabilities.TRANSPORT_WIFI)).put("cellular",caps.hasTransport(NetworkCapabilities.TRANSPORT_CELLULAR)).put("vpn",caps.hasTransport(NetworkCapabilities.TRANSPORT_VPN)).put("validated",caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_VALIDATED)).put("metered",!caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_NOT_METERED)));
         }
         if (app.getPackageManager().hasSystemFeature(PackageManager.FEATURE_TELEPHONY)) {
@@ -88,7 +93,16 @@ public final class DeviceTrust {
             String operator = tm.getNetworkOperator();
             if (operator == null || operator.isEmpty()) status(signals,"operator","unavailable","no registered network operator");
             else available(signals,"operator",operator);
-        } else status(signals,"operator","unavailable","telephony not supported");
+            // SIM issuer and roaming need no permission; the server compares them with the registered network.
+            String sim = tm.getSimOperator();
+            if (sim == null || sim.isEmpty()) status(signals,"simOperator","unavailable","no SIM operator");
+            else available(signals,"simOperator",sim);
+            available(signals,"networkRoaming",tm.isNetworkRoaming());
+        } else {
+            status(signals,"operator","unavailable","telephony not supported");
+            status(signals,"simOperator","unavailable","telephony not supported");
+            status(signals,"networkRoaming","unavailable","telephony not supported");
+        }
         for (String name : new String[]{"cell", "wifiRssi", "bssid", "location", "installedApps", "bluetoothMac", "routerMac", "attestation"}) {
             status(signals,name,"disabled","not enabled");
         }
