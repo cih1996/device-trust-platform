@@ -10,7 +10,7 @@ createApp({
  components:{ResourcePanel,DeviceWorkspace},
  setup() {
   const savedSession=window.localStorage.getItem('dtp_admin_session')||window.sessionStorage.getItem('dtp_admin_session')
-  const token=ref(savedSession||''), signedIn=ref(false), apps=ref([]), overview=ref({stats:{events:0,devices:0,review:0},analytics:{averageRisk:0,riskBuckets:{},activity:[],topIPs:[]},events:[],accesses:[]})
+  const token=ref(savedSession||''), signedIn=ref(false), apps=ref([]), overview=ref({stats:{events:0,devices:0,review:0},analytics:{averageRisk:0,riskBuckets:{},activity:[],topIPs:[],topDevices:[],topReasons:[]},events:[],accesses:[]})
   const username=ref('admin'), password=ref(''), currentPassword=ref(''), newPassword=ref(''), confirmPassword=ref(''), settingsOpen=ref(false), managedApp=ref(null)
   const selected=ref(''), section=ref('apps'), error=ref(''), busy=ref(false), name=ref(''), packageName=ref(''), newKey=ref(''), query=ref(''), detail=ref(null)
   const sectionNames={overview:'风险概览',events:'风险事件',devices:'设备档案',apps:'应用选择'}

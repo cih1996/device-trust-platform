@@ -432,6 +432,16 @@ func (s *Server) overview(w http.ResponseWriter, r *http.Request) {
 	now := time.Now().UTC()
 	ipCounts := map[string]int{}
 	riskBuckets := map[string]int{"low": 0, "medium": 0, "high": 0}
+	type deviceRiskStat struct {
+		count    int
+		total    int
+		maxScore int
+		lastIP   string
+		lastSeen time.Time
+		accounts map[string]bool
+	}
+	deviceRisk := map[string]*deviceRiskStat{}
+	reasonCounts := map[string]int{}
 	activity := make([]map[string]any, 12)
 	for i := range activity {
 		activity[i] = map[string]any{"label": now.Add(-time.Duration(11-i) * time.Hour).Format("15:04"), "events": 0, "risk": 0}
@@ -478,6 +488,38 @@ func (s *Server) overview(w http.ResponseWriter, r *http.Request) {
 			}
 			if e.Decision == "review" {
 				review++
+			}
+			deviceKey := e.DeviceID
+			if deviceKey == "" {
+				deviceKey = e.InstallationID
+			}
+			if deviceKey == "" {
+				deviceKey = "未登记设备"
+			}
+			stat := deviceRisk[deviceKey]
+			if stat == nil {
+				stat = &deviceRiskStat{accounts: map[string]bool{}}
+				deviceRisk[deviceKey] = stat
+			}
+			stat.count++
+			stat.total += e.Score
+			if e.Score > stat.maxScore {
+				stat.maxScore = e.Score
+			}
+			if e.ClientIP != "" {
+				stat.lastIP = e.ClientIP
+			}
+			if e.ReceivedAt.After(stat.lastSeen) {
+				stat.lastSeen = e.ReceivedAt
+			}
+			if e.AccountID != "" {
+				stat.accounts[e.AccountID] = true
+			}
+			for _, reason := range e.Reasons {
+				reasonCounts[reason]++
+			}
+			for _, hit := range e.Hits {
+				reasonCounts[hit.Code]++
 			}
 		}
 	}
@@ -530,6 +572,31 @@ func (s *Server) overview(w http.ResponseWriter, r *http.Request) {
 	if len(topIPs) > 8 {
 		topIPs = topIPs[:8]
 	}
-	analytics := map[string]any{"activeDevices": len(devices), "uniqueIPs": uniqueIPs, "averageRisk": averageRisk, "highRisk": highRisk, "averageDwellSeconds": averageDwellSeconds, "dwellSamples": durationCount, "riskBuckets": riskBuckets, "activity": activity, "topIPs": topIPs}
+	topDevices := make([]map[string]any, 0, len(deviceRisk))
+	for id, stat := range deviceRisk {
+		average := 0
+		if stat.count > 0 {
+			average = stat.total / stat.count
+		}
+		topDevices = append(topDevices, map[string]any{"deviceId": id, "count": stat.count, "averageScore": average, "maxScore": stat.maxScore, "lastIP": stat.lastIP, "lastSeen": stat.lastSeen, "accounts": len(stat.accounts)})
+	}
+	sort.Slice(topDevices, func(i, j int) bool {
+		if topDevices[i]["maxScore"].(int) != topDevices[j]["maxScore"].(int) {
+			return topDevices[i]["maxScore"].(int) > topDevices[j]["maxScore"].(int)
+		}
+		return topDevices[i]["count"].(int) > topDevices[j]["count"].(int)
+	})
+	if len(topDevices) > 8 {
+		topDevices = topDevices[:8]
+	}
+	topReasons := make([]map[string]any, 0, len(reasonCounts))
+	for code, count := range reasonCounts {
+		topReasons = append(topReasons, map[string]any{"code": code, "count": count})
+	}
+	sort.Slice(topReasons, func(i, j int) bool { return topReasons[i]["count"].(int) > topReasons[j]["count"].(int) })
+	if len(topReasons) > 8 {
+		topReasons = topReasons[:8]
+	}
+	analytics := map[string]any{"activeDevices": len(devices), "uniqueIPs": uniqueIPs, "averageRisk": averageRisk, "highRisk": highRisk, "averageDwellSeconds": averageDwellSeconds, "dwellSamples": durationCount, "riskBuckets": riskBuckets, "activity": activity, "topIPs": topIPs, "topDevices": topDevices, "topReasons": topReasons}
 	reply(w, 200, map[string]any{"events": filtered, "accesses": accesses, "resolutions": resolutionMap, "executions": executionMap, "feedback": feedback, "outcomes": latestOutcomes, "scenes": scenes, "profiles": profiles(reports, events, appID), "analytics": analytics, "stats": map[string]int{"events": today, "devices": len(devices), "review": review}})
 }
