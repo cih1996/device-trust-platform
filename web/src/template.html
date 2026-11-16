@@ -50,7 +50,6 @@
    <template v-if="section==='apps'">
     <template v-if="!managedApp">
     <div class="app-landing">
-    <div class="landing-summary"><article><span>已接入应用</span><strong>{{apps.length}}</strong><small>当前账号可管理</small></article><article><span>执行模式</span><strong>{{apps.filter(app=>app.policy.mode==='enforce').length}}</strong><small>已启用业务处置</small></article><article><span>风险面板</span><strong>24h</strong><small>实时更新设备与访问</small></article></div>
     <section class="panel">
 <div class="panel-title"><div><h2>创建应用</h2><p>为新的业务接入建立独立风险空间。</p></div><span class="muted">应用密钥仅展示一次</span></div>
 <form class="create" @submit.prevent="create">
