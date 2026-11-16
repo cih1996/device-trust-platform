@@ -6,7 +6,6 @@ import (
 	"net/http"
 	"os"
 	"sort"
-	"strconv"
 	"strings"
 	"time"
 )
@@ -52,17 +51,25 @@ func (s *Server) listDevices(w http.ResponseWriter, r *http.Request) {
 		fail(w, 500, err)
 		return
 	}
-	all := profiles(reports, events, r.URL.Query().Get("appId"))
-	for i := range all {
-		if err = s.keyStatus(&all[i]); err != nil {
-			fail(w, 500, err)
-			return
-		}
+	query := r.URL.Query()
+	all := profiles(reports, events, query.Get("appId"))
+	if err = s.withKeyStatus(all); err != nil {
+		fail(w, 500, err)
+		return
 	}
-	stats := map[string]int{"total": len(all), "active": 0, "conflict": 0, "incomplete": 0}
+	offset, limit, err := pagination(r, 50)
+	if err != nil {
+		fail(w, 400, err)
+		return
+	}
+	stats := map[string]int{"total": len(all), "active": 0, "conflict": 0, "incomplete": 0, "low": 0, "medium": 0, "high": 0, "revoked": 0}
 	for _, p := range all {
 		if time.Since(p.LastSeen) <= 24*time.Hour {
 			stats["active"]++
+		}
+		stats[p.RiskLevel]++
+		if p.KeyStatus == "revoked" {
+			stats["revoked"]++
 		}
 		conflict, incomplete := false, p.LatestReport.Resources == nil
 		if p.LatestReport.Resources != nil {
@@ -82,42 +89,44 @@ func (s *Server) listDevices(w http.ResponseWriter, r *http.Request) {
 			stats["incomplete"]++
 		}
 	}
-	q := strings.ToLower(strings.TrimSpace(r.URL.Query().Get("q")))
+	q := strings.ToLower(strings.TrimSpace(query.Get("q")))
+	level := query.Get("level")
 	filtered := []Profile{}
 	for _, p := range all {
-		value := p.DeviceID + " " + p.InstallationID + " " + p.LatestReport.ObservedIP
+		if level != "" && p.RiskLevel != level {
+			continue
+		}
+		value := p.DeviceID + " " + p.InstallationID + " " + p.LatestReport.ObservedIP + " " + p.LastIP
 		for _, key := range []string{"manufacturer", "model"} {
-			if s := p.LatestReport.Signals[key]; s.Status == "available" {
-				if v, ok := s.Value.(string); ok {
-					value += " " + v
-				}
-			}
+			value += " " + stringSignal(p.LatestReport, key)
 		}
 		if q == "" || strings.Contains(strings.ToLower(value), q) {
 			filtered = append(filtered, p)
 		}
 	}
-	offset, limit := 0, 50
-	for name, target := range map[string]*int{"offset": &offset, "limit": &limit} {
-		if text := r.URL.Query().Get(name); text != "" {
-			value, parseErr := strconv.Atoi(text)
-			if parseErr != nil || value < 0 || (name == "limit" && (value < 1 || value > 100)) {
-				fail(w, 400, errors.New("invalid device pagination"))
-				return
-			}
-			*target = value
+	less := map[string]func(a, b Profile) bool{
+		"lastSeen": func(a, b Profile) bool { return a.LastSeen.After(b.LastSeen) },
+		"risk":     func(a, b Profile) bool { return a.RiskScore > b.RiskScore },
+		"accounts": func(a, b Profile) bool { return a.AccountCount > b.AccountCount },
+		"events":   func(a, b Profile) bool { return a.EventCount > b.EventCount },
+	}
+	sortKey := query.Get("sort")
+	if sortKey == "" {
+		sortKey = "lastSeen"
+	}
+	order, ok := less[sortKey]
+	if !ok {
+		fail(w, 400, errors.New("invalid device sort"))
+		return
+	}
+	sort.SliceStable(filtered, func(i, j int) bool {
+		a, b := filtered[i], filtered[j]
+		if order(a, b) != order(b, a) {
+			return order(a, b)
 		}
-	}
-	total := len(filtered)
-	start := offset
-	if start > total {
-		start = total
-	}
-	end := start + limit
-	if end > total {
-		end = total
-	}
-	reply(w, 200, map[string]any{"items": filtered[start:end], "total": total, "offset": offset, "limit": limit, "stats": stats})
+		return a.LastSeen.After(b.LastSeen)
+	})
+	reply(w, 200, map[string]any{"items": page(filtered, offset, limit), "total": len(filtered), "offset": offset, "limit": limit, "stats": stats})
 }
 
 type deviceAccount struct {
@@ -177,11 +186,85 @@ func (s *Server) deviceDetails(w http.ResponseWriter, r *http.Request, id string
 		accounts = append(accounts, *a)
 	}
 	sort.Slice(accounts, func(i, j int) bool { return accounts[i].LastSeen.After(accounts[j].LastSeen) })
+	// Daily risk trend over 30 days for the device: peak and average event score.
+	type day struct {
+		Start   time.Time `json:"start"`
+		Events  int       `json:"events"`
+		Max     int       `json:"maxScore"`
+		Average int       `json:"averageScore"`
+		total   int
+	}
+	y, m, d := time.Now().In(time.Local).Date()
+	end := time.Date(y, m, d, 0, 0, 0, 0, time.Local).AddDate(0, 0, 1)
+	trend := make([]*day, 30)
+	for i := range trend {
+		trend[i] = &day{Start: end.AddDate(0, 0, i-30).UTC()}
+	}
+	type ipUse struct {
+		IP       string    `json:"ip"`
+		Count    int       `json:"count"`
+		Source   string    `json:"source"`
+		LastSeen time.Time `json:"lastSeen"`
+		Region   *IPRegion `json:"region,omitempty"`
+	}
+	ips := map[string]*ipUse{}
+	use := func(ip, source string, at time.Time, region *IPRegion) {
+		if ip == "" {
+			return
+		}
+		u := ips[source+ip]
+		if u == nil {
+			u = &ipUse{IP: ip, Source: source}
+			ips[source+ip] = u
+		}
+		u.Count++
+		if at.After(u.LastSeen) {
+			u.LastSeen = at
+		}
+		if region != nil {
+			u.Region = region
+		}
+	}
+	for _, e := range related {
+		if i := int(e.ReceivedAt.Sub(trend[0].Start) / (24 * time.Hour)); !e.ReceivedAt.Before(trend[0].Start) && i < len(trend) {
+			t := trend[i]
+			t.Events++
+			t.total += e.Score
+			t.Max = max(t.Max, e.Score)
+			t.Average = t.total / t.Events
+		}
+		var region *IPRegion
+		if e.Resources != nil {
+			region = e.Resources.IP
+		}
+		use(e.ClientIP, "business", e.ReceivedAt, region)
+	}
+	for _, report := range history {
+		var region *IPRegion
+		if report.Resources != nil {
+			region = report.Resources.IP
+		}
+		use(report.ObservedIP, "device", report.ReceivedAt, region)
+	}
+	ipList := []*ipUse{}
+	for _, u := range ips {
+		ipList = append(ipList, u)
+	}
+	sort.Slice(ipList, func(i, j int) bool { return ipList[i].LastSeen.After(ipList[j].LastSeen) })
 	if len(history) > 20 {
 		history = history[:20]
 	}
-	if len(related) > 30 {
-		related = related[:30]
+	if len(related) > 50 {
+		related = related[:50]
 	}
-	reply(w, 200, map[string]any{"profile": selected, "reports": history, "events": related, "accounts": accounts})
+	control, err := s.controlState()
+	if err != nil {
+		fail(w, 500, err)
+		return
+	}
+	rows := []eventRow{}
+	for _, e := range related {
+		rows = append(rows, control.row(e))
+	}
+	reply(w, 200, map[string]any{"profile": selected, "reports": history, "events": rows, "accounts": accounts, "trend": trend, "ips": ipList})
 }

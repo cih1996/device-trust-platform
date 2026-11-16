@@ -151,3 +151,40 @@ func TestPaymentToolAssociationAcrossDifferentDevices(t *testing.T) {
 		t.Fatal(current)
 	}
 }
+
+func TestRuntimeIntegritySignals(t *testing.T) {
+	r := Report{Signals: map[string]Signal{
+		"integrityNative": {Status: "available", Value: map[string]any{"tracerPid": float64(4121), "hooks": []any{"frida"}, "hookThreads": []any{"gum-js-loop"}, "emulator": []any{"ro.kernel.qemu"}}},
+		"resourceNative":  {Status: "available", Value: map[string]any{"machine": "x86_64"}},
+		"sensors":         {Status: "available", Value: []any{map[string]any{"type": float64(5)}}},
+		"appDebuggable":   {Status: "available", Value: true},
+		"httpProxy":       {Status: "available", Value: map[string]any{"host": "192.168.1.9", "port": float64(8888)}},
+		"appSandbox":      {Status: "available", Value: map[string]any{"userId": float64(0), "ownDataDir": false}},
+		"adbEnabled":      {Status: "available", Value: true},
+	}}
+	got := map[string]int{}
+	runtimeIntegrity(r, func(points int, code string) { got[code] = points })
+	want := map[string]int{"native_debugger": 25, "hook_framework": 40, "emulator_traits": 35, "x86_runtime": 15, "missing_motion_sensor": 15, "app_debuggable": 30, "http_proxy": 10, "virtual_container": 30, "adb_enabled": 5}
+	if len(got) != len(want) {
+		t.Fatalf("got %v want %v", got, want)
+	}
+	for code, points := range want {
+		if got[code] != points {
+			t.Fatalf("%s: got %d want %d (%v)", code, got[code], points, got)
+		}
+	}
+
+	clean := Report{Signals: map[string]Signal{
+		"integrityNative": {Status: "available", Value: map[string]any{"tracerPid": float64(0), "hooks": []any{}, "hookThreads": []any{}, "emulator": []any{}}},
+		"sensors":         {Status: "available", Value: []any{map[string]any{"type": float64(1)}}},
+		"httpProxy":       {Status: "available", Value: false},
+		"appSandbox":      {Status: "available", Value: map[string]any{"userId": float64(999), "ownDataDir": true}},
+		// Unreadable signals are not evidence either way.
+		"appDebuggable": {Status: "error", Reason: "x"},
+	}}
+	got = map[string]int{}
+	runtimeIntegrity(clean, func(points int, code string) { got[code] = points })
+	if len(got) != 1 || got["secondary_user"] != 5 {
+		t.Fatalf("clean device should only note the secondary user: %v", got)
+	}
+}

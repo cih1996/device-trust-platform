@@ -165,6 +165,12 @@ func (s *Server) admin(w http.ResponseWriter, r *http.Request) {
 		reply(w, 200, map[string]string{"key": key})
 	case path == "overview" && r.Method == "GET":
 		s.overview(w, r)
+	case path == "analytics" && r.Method == "GET":
+		s.analytics(w, r)
+	case path == "events" && r.Method == "GET":
+		s.listEvents(w, r)
+	case strings.HasPrefix(path, "events/") && !strings.Contains(strings.TrimPrefix(path, "events/"), "/") && r.Method == "GET":
+		s.eventDetails(w, r, strings.TrimPrefix(path, "events/"))
 	case path == "devices" && r.Method == "GET":
 		s.listDevices(w, r)
 	case strings.HasPrefix(path, "devices/") && r.Method == "GET":
@@ -514,9 +520,6 @@ func (s *Server) overview(w http.ResponseWriter, r *http.Request) {
 			}
 			if e.AccountID != "" {
 				stat.accounts[e.AccountID] = true
-			}
-			for _, reason := range e.Reasons {
-				reasonCounts[reason]++
 			}
 			for _, hit := range e.Hits {
 				reasonCounts[hit.Code]++

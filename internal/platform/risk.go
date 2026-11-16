@@ -79,13 +79,7 @@ func evaluateBusiness(e *Event, r Report, history []Event, outcomes []Outcome, p
 		}
 		add(points, code, source, 0, 0, 0)
 	})
-	roots := 0
-	for _, name := range []string{"rootBeerSuBinary", "rootBeerMagiskBinary", "rootBeerNativeSu"} {
-		if s := r.Signals[name]; s.Status == "available" && s.Value == true {
-			roots++
-		}
-	}
-	if roots >= 2 {
+	if roots := rootIndicators(r); roots >= 2 {
 		add(20, "root_indicators", "client", roots, 2, 0)
 	}
 	regDevice := map[string]bool{}
@@ -223,20 +217,10 @@ func evaluateBusiness(e *Event, r Report, history []Event, outcomes []Outcome, p
 			add(30, "payment_chargeback_history", "outcome", chargebacks, 1, 30*24*time.Hour)
 		}
 	}
-	resourcePoints := 0
-	if r.Resources != nil {
-		for _, check := range r.Resources.Checks {
-			if check.Points > 0 && resourcePoints < 50 {
-				points := check.Points
-				if points > 50-resourcePoints {
-					points = 50 - resourcePoints
-				}
-				resourcePoints += points
-				e.Score += points
-				e.Reasons = append(e.Reasons, check.Code)
-				e.Hits = append(e.Hits, RuleHit{Code: check.Code, Points: points, Source: "resource", Dimension: check.Dimension})
-			}
-		}
+	for _, hit := range resourceHits(r) {
+		e.Score += hit.Points
+		e.Reasons = append(e.Reasons, hit.Code)
+		e.Hits = append(e.Hits, hit)
 	}
 	if e.Score > 100 {
 		e.Score = 100
@@ -312,4 +296,32 @@ func dimensionFor(code, source string) string {
 	default:
 		return "payment_outcome"
 	}
+}
+
+func rootIndicators(r Report) int {
+	roots := 0
+	for _, name := range []string{"rootBeerSuBinary", "rootBeerMagiskBinary", "rootBeerNativeSu"} {
+		if s := r.Signals[name]; s.Status == "available" && s.Value == true {
+			roots++
+		}
+	}
+	return roots
+}
+
+// Resource conflicts contribute at most 50 points so one noisy source cannot decide alone.
+func resourceHits(r Report) []RuleHit {
+	hits := []RuleHit{}
+	if r.Resources == nil {
+		return hits
+	}
+	total := 0
+	for _, check := range r.Resources.Checks {
+		if check.Points <= 0 || total >= 50 {
+			continue
+		}
+		points := min(check.Points, 50-total)
+		total += points
+		hits = append(hits, RuleHit{Code: check.Code, Points: points, Source: "resource", Dimension: check.Dimension})
+	}
+	return hits
 }

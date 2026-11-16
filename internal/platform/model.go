@@ -73,6 +73,7 @@ func evaluateDevice(e *Event, r Report, history []Event, add func(int, string)) 
 	if r.Package != "" && r.Signals["expectedPackage"].Value == false {
 		add(30, "package_mismatch")
 	}
+	runtimeIntegrity(r, add)
 	accounts := map[string]bool{e.AccountID: true}
 	count := 0
 	for _, old := range history {
@@ -92,5 +93,68 @@ func evaluateDevice(e *Event, r Report, history []Event, add func(int, string)) 
 	}
 	if count >= 10 {
 		add(35, "frequent_events_1m")
+	}
+}
+
+func signalMap(r Report, key string) map[string]any {
+	if s := r.Signals[key]; s.Status == "available" {
+		if v, ok := s.Value.(map[string]any); ok {
+			return v
+		}
+	}
+	return nil
+}
+
+func signalTrue(r Report, key string) bool {
+	s := r.Signals[key]
+	return s.Status == "available" && s.Value == true
+}
+
+// runtimeIntegrity scores traces of debugging, hooking, emulation and app
+// cloning. Each is an observation an attacker can hide, never proof of fraud.
+func runtimeIntegrity(r Report, add func(int, string)) {
+	if native := signalMap(r, "integrityNative"); native != nil {
+		if pid, _ := native["tracerPid"].(float64); pid > 0 {
+			add(25, "native_debugger")
+		}
+		if hooks, _ := native["hooks"].([]any); len(hooks) > 0 {
+			add(40, "hook_framework")
+		} else if threads, _ := native["hookThreads"].([]any); len(threads) > 0 {
+			add(30, "hook_threads")
+		}
+		if traits, _ := native["emulator"].([]any); len(traits) > 0 {
+			add(35, "emulator_traits")
+		}
+	}
+	if machine, _ := signalMap(r, "resourceNative")["machine"].(string); machine == "x86_64" || machine == "i686" {
+		add(15, "x86_runtime")
+	}
+	if s := r.Signals["sensors"]; s.Status == "available" {
+		sensors, _ := s.Value.([]any)
+		accelerometer := false
+		for _, item := range sensors {
+			if sensor, ok := item.(map[string]any); ok && sensor["type"] == float64(1) {
+				accelerometer = true
+			}
+		}
+		if !accelerometer {
+			add(15, "missing_motion_sensor")
+		}
+	}
+	if signalTrue(r, "appDebuggable") {
+		add(30, "app_debuggable")
+	}
+	if _, ok := signalMap(r, "httpProxy")["host"]; ok {
+		add(10, "http_proxy")
+	}
+	if sandbox := signalMap(r, "appSandbox"); sandbox != nil {
+		if sandbox["ownDataDir"] == false {
+			add(30, "virtual_container")
+		} else if user, _ := sandbox["userId"].(float64); user != 0 {
+			add(5, "secondary_user")
+		}
+	}
+	if signalTrue(r, "adbEnabled") {
+		add(5, "adb_enabled")
 	}
 }

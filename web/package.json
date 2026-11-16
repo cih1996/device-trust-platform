@@ -1,9 +1,19 @@
 {
   "name": "device-trust-console",
-  "version": "0.4.0",
+  "version": "0.7.0",
   "private": true,
   "type": "module",
-  "scripts": { "dev": "vite --host 127.0.0.1", "build": "vite build", "test": "node --test src/signals.test.js", "check": "node scripts/check-template.mjs" },
-  "dependencies": { "vue": "^3.5.0" },
-  "devDependencies": { "vite": "^7.0.0" }
+  "scripts": {
+    "dev": "vite --host 127.0.0.1",
+    "build": "vite build",
+    "test": "node --test src/*.test.js",
+    "check": "node scripts/check-template.mjs"
+  },
+  "dependencies": {
+    "vue": "^3.5.0"
+  },
+  "devDependencies": {
+    "@vitejs/plugin-vue": "^6.0.11",
+    "vite": "^7.0.0"
+  }
 }
