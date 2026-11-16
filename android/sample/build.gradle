@@ -3,7 +3,7 @@ android {
     namespace 'com.device.trust.sample'
     compileSdk 35
     defaultConfig {
-        applicationId 'com.device.trust.sample'; minSdk 24; targetSdk 35; versionCode 7; versionName '0.6.0'
+        applicationId 'com.device.trust.sample'; minSdk 24; targetSdk 35; versionCode 8; versionName '0.7.0'
         def publicAppId=providers.environmentVariable('DTP_DEMO_APP_ID').getOrElse('')
         if(publicAppId.isEmpty())throw new GradleException('DTP_DEMO_APP_ID is required')
         buildConfigField 'String', 'DEMO_APP_ID', '"'+publicAppId+'"'

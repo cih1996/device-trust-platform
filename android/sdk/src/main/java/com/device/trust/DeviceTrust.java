@@ -2,13 +2,19 @@ package com.device.trust;
 
 import android.content.Context;
 import android.content.SharedPreferences;
+import android.content.pm.ApplicationInfo;
 import android.content.pm.PackageManager;
+import android.accessibilityservice.AccessibilityServiceInfo;
+import android.net.LinkProperties;
+import android.net.ProxyInfo;
+import android.view.accessibility.AccessibilityManager;
 import android.net.ConnectivityManager;
 import android.net.Network;
 import android.net.NetworkCapabilities;
 import android.os.Build;
 import android.os.Debug;
 import android.os.Looper;
+import android.os.Process;
 import android.provider.Settings;
 import android.telephony.TelephonyManager;
 import org.json.JSONException;
@@ -59,15 +65,22 @@ public final class DeviceTrust {
             if (value == null || value.isEmpty()) status(signals,"androidId","unavailable","system returned no value");
             else available(signals, "androidId", value);
         } else status(signals,"androidId","disabled","host configuration");
+        runtime(app, signals);
         ConnectivityManager cm = (ConnectivityManager) app.getSystemService(Context.CONNECTIVITY_SERVICE);
         Network network = cm.getActiveNetwork();
         NetworkCapabilities caps = network == null ? null : cm.getNetworkCapabilities(network);
         if (caps == null) {
             status(signals,"vpn","unavailable","no active network");
             status(signals,"transport","unavailable","no active network");
+            status(signals,"httpProxy","unavailable","no active network");
         } else {
             available(signals,"vpn",caps.hasTransport(NetworkCapabilities.TRANSPORT_VPN));
             available(signals,"transport",caps.hasTransport(NetworkCapabilities.TRANSPORT_WIFI)?"wifi":caps.hasTransport(NetworkCapabilities.TRANSPORT_CELLULAR)?"cellular":caps.hasTransport(NetworkCapabilities.TRANSPORT_ETHERNET)?"ethernet":"other");
+            LinkProperties link = cm.getLinkProperties(network);
+            ProxyInfo proxy = link == null ? null : link.getHttpProxy();
+            if (proxy == null) proxy = cm.getDefaultProxy();
+            if (proxy != null && proxy.getHost() != null && !proxy.getHost().isEmpty()) available(signals,"httpProxy",new JSONObject().put("host",proxy.getHost()).put("port",proxy.getPort()));
+            else available(signals,"httpProxy",false);
             available(signals,"networkSnapshot",new JSONObject().put("wifi",caps.hasTransport(NetworkCapabilities.TRANSPORT_WIFI)).put("cellular",caps.hasTransport(NetworkCapabilities.TRANSPORT_CELLULAR)).put("vpn",caps.hasTransport(NetworkCapabilities.TRANSPORT_VPN)).put("validated",caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_VALIDATED)).put("metered",!caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_NOT_METERED)));
         }
         if (app.getPackageManager().hasSystemFeature(PackageManager.FEATURE_TELEPHONY)) {
@@ -80,6 +93,27 @@ public final class DeviceTrust {
             status(signals,name,"disabled","not enabled");
         }
         return new JSONObject().put("appId", options.appId).put("installationId",id).put("package",app.getPackageName()).put("signals",signals);
+    }
+
+    /**
+     * Runtime posture readable without permissions: debuggable build, ADB and developer options,
+     * enabled accessibility services (count only), and whether the app runs in a secondary user
+     * or a virtual container whose data directory does not belong to this package.
+     */
+    static void runtime(Context app, JSONObject signals) throws JSONException {
+        ApplicationInfo info = app.getApplicationInfo();
+        available(signals, "appDebuggable", (info.flags & ApplicationInfo.FLAG_DEBUGGABLE) != 0);
+        available(signals, "adbEnabled", Settings.Global.getInt(app.getContentResolver(), Settings.Global.ADB_ENABLED, 0) == 1);
+        available(signals, "developerOptions", Settings.Global.getInt(app.getContentResolver(), Settings.Global.DEVELOPMENT_SETTINGS_ENABLED, 0) == 1);
+        AccessibilityManager accessibility = (AccessibilityManager) app.getSystemService(Context.ACCESSIBILITY_SERVICE);
+        if (accessibility == null) status(signals, "accessibilityServices", "unavailable", "accessibility service missing");
+        else available(signals, "accessibilityServices", accessibility.getEnabledAccessibilityServiceList(AccessibilityServiceInfo.FEEDBACK_ALL_MASK).size());
+        // Android user ID is uid / 100000 (UserHandle.PER_USER_RANGE). Cloned-app spaces use non-zero users.
+        int userId = Process.myUid() / 100000;
+        String pkg = app.getPackageName();
+        String dataDir = info.dataDir == null ? "" : info.dataDir;
+        boolean ownDir = dataDir.equals("/data/user/" + userId + "/" + pkg) || dataDir.equals("/data/data/" + pkg) || dataDir.matches("/mnt/expand/[^/]+/user/" + userId + "/" + java.util.regex.Pattern.quote(pkg));
+        available(signals, "appSandbox", new JSONObject().put("userId", userId).put("dataDir", dataDir).put("ownDataDir", ownDir));
     }
 
     /** HTTPS only. Host schedules this call; exceptions retain the server response. */

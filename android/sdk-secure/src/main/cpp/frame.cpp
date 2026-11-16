@@ -121,6 +121,7 @@ OBF static jboolean pinMatches(JNIEnv* env,jclass,jbyteArray digest,jbyteArray e
 }
 
 #include "resources.inc"
+#include "integrity.inc"
 
 extern "C" JNIEXPORT jint JNICALL JNI_OnLoad(JavaVM* vm,void*) {
     JNIEnv* env=nullptr;if(vm->GetEnv((void**)&env,JNI_VERSION_1_6)!=JNI_OK)return JNI_ERR;
@@ -128,7 +129,8 @@ extern "C" JNIEXPORT jint JNICALL JNI_OnLoad(JavaVM* vm,void*) {
     JNINativeMethod methods[]={
         {(char*)"protect",(char*)"(I[B[B[B[B[BLjava/security/PrivateKey;)[B",(void*)protect},
         {(char*)"pinMatches",(char*)"([B[B)Z",(void*)pinMatches},
-        {(char*)"resources",(char*)"()Ljava/lang/String;",(void*)resources}
+        {(char*)"resources",(char*)"()Ljava/lang/String;",(void*)resources},
+        {(char*)"integrity",(char*)"()Ljava/lang/String;",(void*)integrity}
     };
-    return env->RegisterNatives(cls,methods,3)==0?JNI_VERSION_1_6:JNI_ERR;
+    return env->RegisterNatives(cls,methods,4)==0?JNI_VERSION_1_6:JNI_ERR;
 }

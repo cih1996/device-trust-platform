@@ -32,6 +32,7 @@ public final class ResourceCollector {
         JSONObject java=new JSONObject().put("brand",Build.BRAND).put("manufacturer",Build.MANUFACTURER).put("model",Build.MODEL).put("device",Build.DEVICE).put("hardware",Build.HARDWARE).put("board",Build.BOARD).put("product",Build.PRODUCT).put("supportedAbis",new JSONArray(Build.SUPPORTED_ABIS)).put("memoryBytes",memory.totalMem).put("availableCores",Runtime.getRuntime().availableProcessors());
         if(Build.VERSION.SDK_INT>=31)java.put("socModel",Build.SOC_MODEL).put("socManufacturer",Build.SOC_MANUFACTURER);
         put(signals,"resourceJava",java);put(signals,"resourceNative",new JSONObject(NativeFrame.resources()));
+        put(signals,"integrityNative",new JSONObject(NativeFrame.integrity()));
         put(signals,"osInfo",new JSONObject().put("release",Build.VERSION.RELEASE).put("sdk",Build.VERSION.SDK_INT).put("patch",Build.VERSION.SECURITY_PATCH).put("buildId",Build.ID).put("display",Build.DISPLAY).put("type",Build.TYPE).put("tags",Build.TAGS).put("bootloader",Build.BOOTLOADER).put("uptimeMillis",SystemClock.elapsedRealtime()));
         put(signals,"memory",new JSONObject().put("totalBytes",memory.totalMem).put("availableBytes",memory.availMem).put("lowMemory",memory.lowMemory));
         StatFs storage=new StatFs(Environment.getDataDirectory().getPath());put(signals,"storage",new JSONObject().put("totalBytes",storage.getTotalBytes()).put("availableBytes",storage.getAvailableBytes()).put("scope","data_partition"));
