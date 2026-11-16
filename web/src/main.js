@@ -1,4 +1,4 @@
-import { createApp, ref, computed } from 'vue/dist/vue.esm-bundler.js'
+import { createApp, ref, computed, onMounted } from 'vue/dist/vue.esm-bundler.js'
 import './style.css'
 import template from './template.html?raw'
 import ResourcePanel from './resource-panel.js'
@@ -9,10 +9,11 @@ import { sceneNames, actionNames, reviewNames, riskReasons, fieldNames, outcomeN
 createApp({
  components:{ResourcePanel,DeviceWorkspace},
  setup() {
-  const token=ref(''), signedIn=ref(false), apps=ref([]), overview=ref({stats:{events:0,devices:0,review:0},analytics:{averageRisk:0,riskBuckets:{},activity:[],topIPs:[]},events:[],accesses:[]})
+  const savedSession=window.localStorage.getItem('dtp_admin_session')||window.sessionStorage.getItem('dtp_admin_session')
+  const token=ref(savedSession||''), signedIn=ref(false), apps=ref([]), overview=ref({stats:{events:0,devices:0,review:0},analytics:{averageRisk:0,riskBuckets:{},activity:[],topIPs:[]},events:[],accesses:[]})
   const username=ref('admin'), password=ref(''), currentPassword=ref(''), newPassword=ref(''), confirmPassword=ref(''), settingsOpen=ref(false), managedApp=ref(null)
-  const selected=ref(''), section=ref('overview'), error=ref(''), busy=ref(false), name=ref(''), packageName=ref(''), newKey=ref(''), query=ref(''), detail=ref(null)
-  const sectionNames={overview:'风险概览',events:'风险事件',devices:'设备档案',apps:'应用管理'}
+  const selected=ref(''), section=ref('apps'), error=ref(''), busy=ref(false), name=ref(''), packageName=ref(''), newKey=ref(''), query=ref(''), detail=ref(null)
+  const sectionNames={overview:'风险概览',events:'风险事件',devices:'设备档案',apps:'应用选择'}
   const signalNames={resourceJava:'设备参数',resourceNative:'底层参数',sensors:'传感器',systemPackages:'系统应用',networkSnapshot:'网络状态',manufacturer:'制造商',model:'机型',sdkInt:'系统版本',securityPatch:'安全更新',buildFingerprint:'系统版本标识',debugger:'调试状态',emulatorHint:'模拟环境线索',vpn:'VPN 连接',transport:'网络连接',operator:'网络运营商',androidId:'应用设备标识',expectedPackage:'应用匹配',cell:'基站与信号',wifiRssi:'Wi-Fi 信号',bssid:'无线接入点',location:'位置',installedApps:'已安装应用',bluetoothMac:'蓝牙地址',routerMac:'路由地址',attestation:'硬件证明',rootBeerTestKeys:'测试版系统线索',rootBeerSuBinary:'提权程序线索',rootBeerMagiskBinary:'系统修改工具线索',rootBeerNativeSu:'原生提权程序线索',rootBeerVersion:'采集组件版本'}
   const reasons=riskReasons
   const deviceWorkspace=ref(null)
@@ -29,11 +30,13 @@ createApp({
   }
   async function act(action){error.value='';busy.value=true;try{await action()}catch(e){error.value=e.message}finally{busy.value=false}}
   async function refresh(){apps.value=await api('apps');overview.value=await api('overview?appId='+encodeURIComponent(selected.value))}
-  function login(){act(async()=>{const response=await fetch('/api/auth/login',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({username:username.value,password:password.value})});const data=await response.json();if(!response.ok)throw Error(data.error);token.value=data.token;password.value='';await refresh();signedIn.value=true})}
+  function login(){act(async()=>{const response=await fetch('/api/auth/login',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({username:username.value,password:password.value})});const data=await response.json();if(!response.ok)throw Error(data.error);token.value=data.token;window.localStorage.setItem('dtp_admin_session',data.token);window.sessionStorage.setItem('dtp_admin_session',data.token);password.value='';await refresh();signedIn.value=true})}
+  async function restoreSession(){if(!token.value)return;try{await refresh();signedIn.value=true}catch(err){token.value='';window.localStorage.removeItem('dtp_admin_session');window.sessionStorage.removeItem('dtp_admin_session');error.value=''}}
   function changeApp(){act(refresh)}
   function clearApp(){act(async()=>{selected.value='';await refresh()})}
-  function enterApp(app){act(async()=>{managedApp.value=app;selected.value=app.id;await refresh()})}
-  function exitApp(){managedApp.value=null;selected.value='';act(refresh)}
+  function enterApp(app){act(async()=>{managedApp.value=null;selected.value=app.id;section.value='overview';await refresh()})}
+  function openAppSettings(app){act(async()=>{managedApp.value=app;selected.value=app.id;section.value='apps';await refresh()})}
+  function exitApp(){managedApp.value=null;selected.value='';section.value='apps';act(refresh)}
   function goAppOverview(){section.value='overview'}
   function reload(){if(section.value==='devices')deviceWorkspace.value?.reload();else act(refresh)}
   function openPolicy(app){policyApp.value=app;policyDraft.value={...app.policy}}
@@ -46,16 +49,17 @@ createApp({
   function create(){act(async()=>{const data=await api('apps','POST',{name:name.value,package:packageName.value});newKey.value=data.key;name.value='';packageName.value='';await refresh()})}
   function rotate(app){if(window.confirm('重置「'+app.name+'」的密钥？原密钥将立即失效。'))act(async()=>{const data=await api('apps/'+app.id+'/rotate-key','POST',{});newKey.value=data.key})}
   function changePassword(){act(async()=>{if(newPassword.value!==confirmPassword.value)throw Error('两次输入的新密码不一致');await api('auth/password','PUT',{currentPassword:currentPassword.value,newPassword:newPassword.value});currentPassword.value='';newPassword.value='';confirmPassword.value='';settingsOpen.value=false})}
-  function logout(){token.value='';signedIn.value=false;newKey.value='';detail.value=null;managedApp.value=null;apps.value=[];overview.value={stats:{events:0,devices:0,review:0},analytics:{averageRisk:0,riskBuckets:{},activity:[],topIPs:[]},events:[],accesses:[]}}
+  function logout(){token.value='';window.localStorage.removeItem('dtp_admin_session');window.sessionStorage.removeItem('dtp_admin_session');signedIn.value=false;section.value='apps';selected.value='';newKey.value='';detail.value=null;managedApp.value=null;apps.value=[];overview.value={stats:{events:0,devices:0,review:0},analytics:{averageRisk:0,riskBuckets:{},activity:[],topIPs:[]},events:[],accesses:[]}}
   const accesses=computed(()=> (overview.value.accesses||[]).filter(e=>(!query.value||[e.accountId,e.type,e.deviceId,e.ip].some(v=>String(v||'').includes(query.value)))))
   const scoreWidth=score=>Math.max(0,Math.min(100,Number(score)||0))
   const riskClass=score=>score>=70?'high':score>=30?'medium':'low'
   const riskLabel=score=>score>=70?'高风险':score>=30?'中风险':'低风险'
   const riskTooltip=access=>`风险综合评分 ${access.score}/100 · ${riskLabel(access.score)} · ${access.ip||'未提供 IP'} · ${access.deviceId||'未登记设备'}`
   function openAccess(access){const event=overview.value.events.find(item=>item.id===access.id);if(event)openEvent(event)}
+  onMounted(restoreSession)
   const appName=id=>apps.value.find(a=>a.id===id)?.name||id
   const formatTime=value=>new Date(value).toLocaleString('zh-CN',{hour12:false})
-  return {api,deviceWorkspace,changeApp,clearApp,enterApp,exitApp,goAppOverview,managedApp,token,username,password,currentPassword,newPassword,confirmPassword,settingsOpen,signedIn,apps,overview,selected,section,error,busy,name,packageName,newKey,query,detail,sectionNames,signalNames,signalValue,reasons,events,accesses,login,reload,create,rotate,logout,changePassword,appName,formatTime,sceneNames,actionNames,reviewNames,fieldNames,outcomeNames,scenario,policyApp,policyDraft,policyFields,reviewNote,openPolicy,savePolicy,openEvent,openAccess,review,securityApp,securityDraft,signerText,workspaceMode,proofName,gateState,openSecurity,saveSecurity,resolve,scoreWidth,riskClass,riskLabel,riskTooltip}
+  return {api,deviceWorkspace,changeApp,clearApp,enterApp,openAppSettings,exitApp,goAppOverview,managedApp,token,username,password,currentPassword,newPassword,confirmPassword,settingsOpen,signedIn,apps,overview,selected,section,error,busy,name,packageName,newKey,query,detail,sectionNames,signalNames,signalValue,reasons,events,accesses,login,reload,create,rotate,logout,changePassword,appName,formatTime,sceneNames,actionNames,reviewNames,fieldNames,outcomeNames,scenario,policyApp,policyDraft,policyFields,reviewNote,openPolicy,savePolicy,openEvent,openAccess,review,securityApp,securityDraft,signerText,workspaceMode,proofName,gateState,openSecurity,saveSecurity,resolve,scoreWidth,riskClass,riskLabel,riskTooltip}
  },
  template
 }).mount('#app')

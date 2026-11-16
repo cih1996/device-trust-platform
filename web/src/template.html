@@ -22,8 +22,6 @@
 </button>
 <button :class="{active:section==='devices'}" @click="section='devices'" title="设备档案">▣ <span>设备档案</span>
 </button>
-<button :class="{active:section==='apps'}" @click="section='apps'" title="应用管理">◇ <span>应用管理</span>
-</button>
 <div class="aside-bottom">
 <span class="dot">
 </span> 工作台在线<button class="account-link" @click="settingsOpen=true">账号设置</button><button @click="logout">退出登录 ↗</button>
@@ -44,15 +42,17 @@
 <div class="heading">
 <div>
 <span class="eyebrow">DEVICE TRUST</span>
-<h1>{{section==='apps'?'管理你的应用':section==='devices'?'查看设备近况':section==='events'?'每一次风险，都有迹可循':'掌握设备与业务动态'}}</h1>
-<p>{{section==='apps'?'连接应用，管理接入凭据':section==='devices'?'设备信息与账号关联':section==='events'?'查看近期事件与风险线索':'过去 24 小时'}}</p>
+<h1>{{section==='apps'?(managedApp?'应用设置':'选择应用'):section==='devices'?'查看设备近况':section==='events'?'每一次风险，都有迹可循':'掌握设备与业务动态'}}</h1>
+<p>{{section==='apps'?(managedApp?'管理接入保护、策略和密钥':'选择应用后进入对应工作面板'):section==='devices'?'设备信息与账号关联':section==='events'?'查看近期事件与风险线索':'过去 24 小时'}}</p>
 </div>
-<span class="badge">{{workspaceMode}}</span>
+<span class="badge">{{section==='apps'?'应用中心':workspaceMode}}</span>
 </div>
    <template v-if="section==='apps'">
     <template v-if="!managedApp">
+    <div class="app-landing">
+    <div class="landing-summary"><article><span>已接入应用</span><strong>{{apps.length}}</strong><small>当前账号可管理</small></article><article><span>执行模式</span><strong>{{apps.filter(app=>app.policy.mode==='enforce').length}}</strong><small>已启用业务处置</small></article><article><span>风险面板</span><strong>24h</strong><small>实时更新设备与访问</small></article></div>
     <section class="panel">
-<h2>创建应用</h2>
+<div class="panel-title"><div><h2>创建应用</h2><p>为新的业务接入建立独立风险空间。</p></div><span class="muted">应用密钥仅展示一次</span></div>
 <form class="create" @submit.prevent="create">
 <input v-model="name" placeholder="应用名称" aria-label="应用名称" required>
 <input v-model="packageName" placeholder="应用包名" aria-label="应用包名" required>
@@ -76,11 +76,12 @@
 <label>应用 ID</label>
 <code>{{app.id}}</code>
 <div class="toolbar">
-<button @click="enterApp(app)" :disabled="busy">进入管理 →</button>
+<button @click="enterApp(app)" :disabled="busy">进入面板 →</button><button class="quiet" @click="openAppSettings(app)" :disabled="busy">应用设置 ↗</button>
 </div>
 </article>
 </section>
 <div v-if="!apps.length" class="empty">创建第一个应用，开始接入</div>
+    </div>
     </template>
     <template v-else>
     <div class="app-manage-top"><button class="quiet" @click="exitApp">← 返回应用列表</button><span class="badge">应用管理</span></div>
