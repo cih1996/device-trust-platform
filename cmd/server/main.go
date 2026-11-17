@@ -23,9 +23,10 @@ func main() {
 	adminUser := flag.String("admin-user", "admin", "administrator account name")
 	adminAddr := flag.String("admin-addr", "", "optional loopback-only HTTP console")
 	proxy := flag.Bool("trusted-loopback-proxy", false, "trust X-Real-IP from local Nginx")
-	catalog := flag.String("resource-catalog", "", "approved device, cell and region catalog JSON")
+	catalog := flag.String("resource-catalog", "", "approved device and region catalog JSON")
 	ipv4 := flag.String("ip-v4", "", "ip2region IPv4 XDB")
 	ipv6 := flag.String("ip-v6", "", "ip2region IPv6 XDB")
+	cells := flag.String("cell-db", "", "OpenCelliD per-country CSV (.csv or .csv.gz)")
 	flag.Parse()
 	token := os.Getenv("DTP_ADMIN_TOKEN")
 	if *adminFile != "" {
@@ -68,7 +69,7 @@ func main() {
 			log.Fatal("TLS is required for non-loopback listeners")
 		}
 	}
-	resources, err := platform.LoadResources(*catalog, *ipv4, *ipv6)
+	resources, err := platform.LoadResources(*catalog, *ipv4, *ipv6, *cells)
 	if err != nil {
 		log.Fatal(err)
 	}

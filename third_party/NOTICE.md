@@ -12,6 +12,12 @@ Source: https://github.com/nvkelso/natural-earth-vector/blob/ca96624a56bd078437b
 
 Public domain, https://www.naturalearthdata.com/about/terms-of-use/ . A subset of administrative region polygons is used for coarse, buffered comparison only. No geographic accuracy or precise device location is implied. Attribution: Made with Natural Earth.
 
+## OpenCelliD — cell tower positions
+
+Source: https://opencellid.org (per-country file 460.csv.gz, downloaded monthly by cmd/cell-sync).
+
+Data © OpenCelliD contributors, licensed under CC BY-SA 4.0 (https://creativecommons.org/licenses/by-sa/4.0/). Used unmodified at runtime for risk checks; the data is not redistributed with the SDK.
+
 ## RootBeer 0.1.2 — optional Android collector
 
 Copyright (C) 2015, Scott Alexander-Bown, Mat Rollings.

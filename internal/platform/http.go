@@ -99,7 +99,11 @@ func (s *Server) admin(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		e := s.Resources
-		reply(w, 200, map[string]any{"configured": true, "version": e.Catalog.Version, "devices": len(e.Catalog.Devices), "cells": len(e.Catalog.Cells), "regions": len(e.Catalog.Regions), "ipv4": e.V4 != nil, "ipv6": e.V6 != nil})
+		cells := map[string]any{"loaded": e.Cells != nil}
+		if e.Cells != nil {
+			cells["count"], cells["source"], cells["updated"] = e.Cells.Size(), e.Cells.Source, e.Cells.Updated
+		}
+		reply(w, 200, map[string]any{"configured": true, "version": e.Catalog.Version, "devices": len(e.Catalog.Devices), "cells": cells, "regions": len(e.Catalog.Regions), "ipv4": e.V4 != nil, "ipv6": e.V6 != nil})
 		return
 	}
 	switch {
@@ -173,6 +177,8 @@ func (s *Server) admin(w http.ResponseWriter, r *http.Request) {
 		s.listEvents(w, r)
 	case strings.HasPrefix(path, "events/") && !strings.Contains(strings.TrimPrefix(path, "events/"), "/") && r.Method == "GET":
 		s.eventDetails(w, r, strings.TrimPrefix(path, "events/"))
+	case path == "graph" && r.Method == "GET":
+		s.graph(w, r)
 	case path == "devices" && r.Method == "GET":
 		s.listDevices(w, r)
 	case strings.HasPrefix(path, "devices/") && r.Method == "GET":

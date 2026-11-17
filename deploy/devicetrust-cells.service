@@ -1,0 +1,18 @@
+[Unit]
+Description=Refresh DeviceTrust OpenCelliD cell table (MCC 460)
+Wants=network-online.target
+After=network-online.target
+[Service]
+Type=oneshot
+User=devicetrust
+Group=devicetrust
+ExecStart=/opt/devicetrust/current/bin/cell-sync -token-file /etc/devicetrust/opencellid.token -mcc 460 -out /var/lib/devicetrust/cells
+# The platform loads the table at start; reload it after a successful refresh.
+ExecStartPost=+/usr/bin/systemctl try-restart devicetrust-platform.service
+StateDirectory=devicetrust/cells
+StateDirectoryMode=0755
+UMask=0022
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true

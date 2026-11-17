@@ -395,6 +395,9 @@ func (s *Server) secure(w http.ResponseWriter, r *http.Request) {
 		if err == nil {
 			err = s.lanChecks(&report)
 		}
+		if err == nil {
+			err = s.cellCluster(&report)
+		}
 		if err != nil {
 			fail(w, 500, err)
 			return

@@ -54,3 +54,10 @@ API 证书公钥若变化，须先发布包含新旧 SPKI pin 的 App/业务配�
 - Nginx 快照和 service 文件备份不参与轮换。
 
 恢复数据：停止 devicetrust-platform，把 backup.log 中对应的归档解压到 `/var/lib/devicetrust`，再启动服务。
+
+## 基站库（OpenCelliD）
+
+- 数据：`/var/lib/devicetrust/cells/460.csv.gz`，上一版保留为 `460.prev.csv.gz`。服务以 `-cell-db` 参数启动时加载，文件损坏会导致启动失败。
+- 令牌：`/etc/devicetrust/opencellid.token`（root:devicetrust 0640），不要提交到仓库。
+- 更新：`devicetrust-cells.timer` 每月运行 `cell-sync`，下载后用平台同一解析器校验；条数不足上一版一半时保留上一版。成功后重启平台服务以加载新表。
+- 手动更新：`sudo systemctl start devicetrust-cells.service`；查看结果：`journalctl -u devicetrust-cells`。

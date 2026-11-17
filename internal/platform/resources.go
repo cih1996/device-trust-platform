@@ -7,7 +7,6 @@ import (
 	"net/netip"
 	"os"
 	"strings"
-	"time"
 )
 
 type ResourceCheck struct {
@@ -41,18 +40,6 @@ type DeviceBaseline struct {
 	Source         string            `json:"source"`
 	FirmwarePrefix string            `json:"firmwarePrefix"`
 }
-type CellBaseline struct {
-	Radio        string    `json:"radio"`
-	MCC          string    `json:"mcc"`
-	MNC          string    `json:"mnc"`
-	Area         int64     `json:"area"`
-	CellID       int64     `json:"cellId"`
-	Latitude     float64   `json:"latitude"`
-	Longitude    float64   `json:"longitude"`
-	RadiusMeters float64   `json:"radiusMeters"`
-	UpdatedAt    time.Time `json:"updatedAt"`
-	Source       string    `json:"source"`
-}
 type RegionBoundary struct {
 	Province string          `json:"province"`
 	Polygons [][][][]float64 `json:"polygons"`
@@ -60,15 +47,15 @@ type RegionBoundary struct {
 type ResourceCatalog struct {
 	Version string           `json:"version"`
 	Devices []DeviceBaseline `json:"devices"`
-	Cells   []CellBaseline   `json:"cells"`
 	Regions []RegionBoundary `json:"regions"`
 }
 type ResourceEngine struct {
 	Catalog ResourceCatalog
 	V4, V6  *IPDatabase
+	Cells   *CellDB
 }
 
-func LoadResources(catalog, v4, v6 string) (*ResourceEngine, error) {
+func LoadResources(catalog, v4, v6, cells string) (*ResourceEngine, error) {
 	e := &ResourceEngine{Catalog: ResourceCatalog{Version: "resources-0.5"}}
 	if catalog != "" {
 		data, err := os.ReadFile(catalog)
@@ -99,6 +86,11 @@ func LoadResources(catalog, v4, v6 string) (*ResourceEngine, error) {
 		}
 		if e.V6.width != 16 {
 			return nil, fmt.Errorf("IPv6 database expected")
+		}
+	}
+	if cells != "" {
+		if e.Cells, err = LoadCellDB(cells); err != nil {
+			return nil, err
 		}
 	}
 	return e, nil
@@ -332,34 +324,7 @@ func (e *ResourceEngine) Assess(r Report) (*ResourceAssessment, error) {
 	if err := signalObject(r, "cell", &cells); err != nil {
 		add("cell_coverage", "unknown", "network", err.Error(), "client", 0)
 	} else {
-		matched := false
-		for _, cell := range cells {
-			if !cell.Registered || cell.Age == nil || *cell.Age < 0 || *cell.Age > 120000 {
-				continue
-			}
-			for _, known := range e.Catalog.Cells {
-				if cell.Radio != known.Radio || cell.MCC != known.MCC || cell.MNC != known.MNC || cell.Area != known.Area || cell.CellID != known.CellID {
-					continue
-				}
-				matched = true
-				if time.Since(known.UpdatedAt) > 180*24*time.Hour || known.UpdatedAt.After(time.Now()) || known.RadiusMeters <= 0 || known.Source == "" {
-					add("cell_location", "stale", "network", "基站坐标来源、覆盖半径或时效不足", known.Source, 0)
-					continue
-				}
-				if fresh && !gps.Mock {
-					distance := distanceMeters(gps.Latitude, gps.Longitude, known.Latitude, known.Longitude)
-					threshold := math.Max(known.RadiusMeters, 10000) + *gps.Accuracy
-					if distance > threshold {
-						add("cell_gps_mismatch", "conflict", "network", fmt.Sprintf("相距 %.0f km，比较半径 %.0f km", distance/1000, threshold/1000), known.Source, 25)
-					} else {
-						add("cell_gps_crosscheck", "matched", "network", "定位位于已知基站覆盖容差内", known.Source, 0)
-					}
-				}
-			}
-		}
-		if !matched {
-			add("cell_location", "unknown", "network", "没有对应的可信基站坐标，未进行距离判断", e.Catalog.Version, 0)
-		}
+		e.cellSiteChecks(r, cells, gps, fresh, result.IP, add)
 		cellChecks(r, cells, add)
 	}
 	if fresh && !gps.Mock && result.IP != nil {

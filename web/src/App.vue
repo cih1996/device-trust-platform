@@ -9,6 +9,7 @@ import Overview from './views/Overview.vue'
 import Devices from './views/Devices.vue'
 import DeviceDetail from './views/DeviceDetail.vue'
 import Events from './views/Events.vue'
+import Graph from './views/Graph.vue'
 import Apps from './views/Apps.vue'
 import AppDetail from './views/AppDetail.vue'
 import EventDrawer from './views/EventDrawer.vue'
@@ -20,13 +21,14 @@ const signedIn = computed(() => !!token.value && ready.value)
 const nav = [
   { name: 'overview', label: '风险总览', icon: 'overview' },
   { name: 'devices', label: '设备', icon: 'devices' },
+  { name: 'graph', label: '关系图谱', icon: 'graph' },
   { name: 'events', label: '风险事件', icon: 'events' },
   { name: 'apps', label: '应用管理', icon: 'apps' },
 ]
 const view = computed(() => {
   if (route.name === 'devices') return route.id ? DeviceDetail : Devices
   if (route.name === 'apps') return route.id ? AppDetail : Apps
-  return { overview: Overview, events: Events }[route.name] || Overview
+  return { overview: Overview, events: Events, graph: Graph }[route.name] || Overview
 })
 const scoped = computed(() => route.name !== 'apps')
 

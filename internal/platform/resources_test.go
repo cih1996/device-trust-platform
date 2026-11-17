@@ -1,6 +1,7 @@
 package platform
 
 import (
+	"fmt"
 	"net/netip"
 	"os"
 	"path/filepath"
@@ -50,7 +51,7 @@ func TestResourceMismatchAndMissingCoverage(t *testing.T) {
 }
 func TestCellGPSUsesAgeAccuracyAndKnownCell(t *testing.T) {
 	now := time.Now().UTC()
-	engine := &ResourceEngine{Catalog: ResourceCatalog{Version: "TEST", Cells: []CellBaseline{{Radio: "LTE", MCC: "460", MNC: "00", Area: 1, CellID: 2, Latitude: 31, Longitude: 121, RadiusMeters: 1000, UpdatedAt: now, Source: "TEST ONLY"}}}}
+	engine := &ResourceEngine{Catalog: ResourceCatalog{Version: "TEST"}, Cells: testCellDB(t, fmt.Sprintf("LTE,460,0,1,2,0,121,31,1000,5,1,1,%d,0", now.Unix()))}
 	r := resourceReport()
 	r.Signals["cell"] = Signal{Status: "available", Value: []map[string]any{{"technology": "LTE", "mcc": "460", "mnc": "00", "areaCode": 1, "cellId": 2, "registered": true, "ageMillis": 100}}}
 	r.Signals["location"] = Signal{Status: "available", Value: map[string]any{"latitude": 39.9, "longitude": 116.4, "ageMillis": 100, "accuracyMeters": 20, "coordinateSystem": "WGS84"}}
