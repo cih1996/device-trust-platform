@@ -1,7 +1,8 @@
 #!/bin/sh
 # Back up platform data before a release and rotate old backups and releases.
 # Usage: backup-data.sh <version being deployed>
-# Keeps the newest $KEEP data backups and release directories; every action is
+# Keeps the newest $KEEP data backups and, with the release about to be
+# deployed, $KEEP release directories; every action is
 # appended to backups/backup.log. The release that `current` points to is never removed.
 set -eu
 VERSION=${1:?version required}
@@ -25,7 +26,8 @@ done
 
 current=$(readlink -f "$ROOT/current")
 # Releases are ordered by version, newest first: cp -a carries the old mtime.
-ls -1d "$ROOT"/releases/*/ | sed 's:/$::' | sort -rV | tail -n +$((KEEP + 1)) | while read -r old; do
+# The release being deployed is created after this runs, so keep one fewer.
+ls -1d "$ROOT"/releases/*/ | sed 's:/$::' | sort -rV | tail -n +$KEEP | while read -r old; do
 	[ "$(readlink -f "$old")" = "$current" ] && continue
 	rm -rf "$old"
 	echo "$now pruned release $(basename "$old")" >>"$LOG"
