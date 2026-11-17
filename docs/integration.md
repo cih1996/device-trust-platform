@@ -1,4 +1,4 @@
-# 业务服务端接入 · 0.7
+# 业务服务端接入 · 0.7.2
 
 本文写给接入 DeviceTrust 的业务后端：App 怎样把设备交给风控，后端怎样查询设备环境、评估业务事件，以及同一开发者的多个 App 怎样关联到同一台手机。
 
@@ -40,6 +40,17 @@ App 启动（用户同意后）
 1. 在工作台“应用管理”创建应用，包名填写 Android `applicationId`，保存 appId 和 appKey。
 2. 在“接入保护”填写 APK 签名证书的 SHA-256。可以在 App 中读取，也可以用 `apksigner verify --print-certs app.apk` 查看。填写后平台会比对每次上报的签名，并用硬件证明核对包名和签名（第 5 节）。
 3. 你的业务后端实现 `POST /device/prepare`（第 4.1 节）。
+4. App 在 Activity 的 `dispatchTouchEvent` 中调用 `TouchAudit.record(event)`，平台据此识别模拟点击（脚本、按键精灵、无障碍手势、`input tap`）：
+
+   ```java
+   @Override public boolean dispatchTouchEvent(MotionEvent event) {
+       TouchAudit.record(event);
+       return super.dispatchTouchEvent(event);
+   }
+   ```
+5. 如需基站、定位与网络的交叉校验，App 取得定位权限后调用 `EnvironmentCollector.collect(..., CELL, LOCATION)`。没有授权时这些规则不参与评分，不会误判。
+
+SDK 采集内容（隐私政策需写明“用于安全风控”）：设备与系统参数、ANDROID_ID、指定风险应用是否安装（固定名单，不读取应用列表）、无障碍服务状态、本机监听端口号、网络类型与运营商；授权后包括基站与定位。
 
 ## 4. 接口
 
@@ -246,7 +257,28 @@ const verdict = await response.json()
 | attestation_revoked | 硬件证明证书已吊销 | 40 |
 | attested_boot_unlocked | 硬件证明：Bootloader 未锁定 | 25 |
 | http_proxy / vpn / adb_enabled | 代理 / VPN / USB 调试 | 10 / 5 / 5 |
-| 资源验真类 | 机型参数、内存、系统应用签名、基站与定位、IP 区域等矛盾 | 合计最多 50 |
+| risk_app_hook / risk_app_root | 安装 Hook 框架管理器（LSPosed、Xposed 等）/ Root 管理器（Magisk、KernelSU、APatch） | 35 / 30 |
+| risk_app_virtual / risk_app_automation / risk_app_cheat | 多开与虚拟机 / 自动化脚本（Auto.js、按键精灵、触动精灵等）/ 改内存工具 | 25 |
+| risk_app_mock_location / risk_app_capture | 虚拟定位 / 抓包工具 | 20 |
+| risk_app_privilege / risk_app_remote_control | Shizuku / 远程控制应用 | 10 |
+| java_hook_framework | 进程内可见 Xposed / LSPosed / Pine / SandHook 类或调用栈 | 40 |
+| injected_code | 从 /data/local/tmp、memfd 或已删除文件加载的可执行代码 | 35 |
+| frida_server | 本机端口响应 Frida 握手（任意端口） | 50 |
+| frida_default_port / debug_server_port | Frida 默认端口 27042 / IDA 调试端口 23946 开放 | 30 |
+| exposed_listening_ports | 本机有端口对局域网开放（远程控制、调试桥常见） | 15 |
+| accessibility_automation | 第三方无障碍服务可模拟手势 | 20 |
+| hidden_accessibility_client | 无障碍已开启但没有任何登记服务（UiAutomator、Appium 等 UI 自动化） | 25 |
+| injected_touches | 触摸事件为注入的模拟点击（需接入 TouchAudit） | 30 |
+| monkey_test | 系统处于 Monkey 测试模式 | 30 |
+| vendor_packages_missing / foreign_vendor_packages | 品牌与厂商系统应用不符（改机）；仅对国内 SIM 或 IP 生效 | 25 |
+| datacenter_egress | 出口 IP 属于云服务器或机房（代理、云手机） | 30 |
+| ip_outside_sim_country | 大陆 SIM 未漫游，出口在境外或港澳台 | 20 |
+| cell_operator_mismatch / cell_sim_country_mismatch | 注册基站与系统报告的运营商 / SIM 国家不符（运营商被篡改） | 25 / 20 |
+| location_jump | 同一手机两次定位间的速度超过 900 km/h（且距离超过 100 km） | 25 |
+| mock_location / cell_gps_mismatch / ip_gps_region_mismatch | 系统标记模拟定位 / 基站与定位矛盾 / 网络与定位区域不一致 | 20 / 25 / 10 |
+| 其他资源验真类 | 机型参数、内存、系统应用签名等矛盾 | — |
+
+资源验真类（运营商、出口、基站、定位、厂商系统应用）合计最多计 50 分，避免单一数据源决定结论。
 | 业务类 | multiple_accounts_24h、registration_device_cluster、campaign_*、payment_* 等 | 见 business-risk.md |
 
 ## 9. 错误码

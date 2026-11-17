@@ -164,3 +164,63 @@ func environmentConsistency(r Report, add func(int, string)) {
 		}
 	}
 }
+
+// hostingISPs are ip2region ISP names of cloud and hosting networks. A phone
+// reaching the server from one is behind a proxy, VPN server or cloud phone.
+var hostingISPs = []string{"阿里", "腾讯", "华为", "百度", "京东", "金山", "UCloud", "Amazon", "Google", "Microsoft", "Oracle", "DigitalOcean", "Vultr", "Linode", "Akamai", "OVH", "Hetzner", "Alibaba", "Tencent"}
+
+func egressChecks(r Report, ip *IPRegion, add func(code, state, dimension, detail, source string, points int)) {
+	if ip == nil {
+		return
+	}
+	for _, name := range hostingISPs {
+		if strings.Contains(ip.ISP, name) {
+			add("datacenter_egress", "conflict", "network", "出口属于 "+ip.ISP+" 机房网络", "ip2region", 30)
+			break
+		}
+	}
+	sim := stringSignal(r, "simOperator")
+	if !strings.HasPrefix(sim, "460") || signalTrue(r, "networkRoaming") {
+		return
+	}
+	outside := ip.CountryCode != "CN"
+	for _, region := range []string{"香港", "澳门", "台湾"} {
+		outside = outside || strings.Contains(ip.Province, region)
+	}
+	if outside {
+		add("ip_outside_sim_country", "conflict", "network", "中国大陆 SIM，出口在 "+ip.Country+" "+ip.Province, "ip2region", 20)
+	}
+}
+
+// sameOperator reports whether two operator groups can serve each other's SIMs:
+// Telecom/Unicom and Mobile/Broadnet share radio networks.
+func sameOperator(a, b string) bool {
+	return sharedNetwork(a, b) || (a == "移动" && b == "广电") || (a == "广电" && b == "移动")
+}
+
+// cellChecks compares the modem's registered cells with the operator and SIM
+// the telephony framework reports. Operator-spoofing tools rewrite the
+// framework values; the cell list comes from the radio.
+func cellChecks(r Report, cells []cellObservation, add func(code, state, dimension, detail, source string, points int)) {
+	sim, network := stringSignal(r, "simOperator"), stringSignal(r, "operator")
+	roaming := signalTrue(r, "networkRoaming")
+	for _, cell := range cells {
+		if !cell.Registered || cell.MCC == "" || cell.MNC == "" || cell.Age == nil || *cell.Age < 0 || *cell.Age > 120000 {
+			continue
+		}
+		plmn := cell.MCC + cell.MNC
+		if len(network) >= 5 {
+			a, b := chinaCarrier(plmn), chinaCarrier(network)
+			if (a != "" && b != "" && !sameOperator(a, b)) || cell.MCC != network[:3] {
+				add("cell_operator_mismatch", "conflict", "network", "注册基站 "+plmn+"，系统报告网络 "+network, "client", 25)
+				return
+			}
+		}
+		if len(sim) >= 3 && !roaming && cell.MCC != sim[:3] {
+			add("cell_sim_country_mismatch", "conflict", "network", "注册基站国家码 "+cell.MCC+"，SIM "+sim, "client", 20)
+			return
+		}
+		add("cell_operator", "matched", "network", "注册基站与运营商一致", "client", 0)
+		return
+	}
+}

@@ -172,4 +172,5 @@ func runtimeIntegrity(r Report, add func(int, string)) {
 		add(5, "adb_enabled")
 	}
 	environmentConsistency(r, add)
+	toolingSignals(r, add)
 }

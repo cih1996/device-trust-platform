@@ -20,10 +20,10 @@ import org.json.JSONObject;
 import org.json.JSONArray;
 import java.security.MessageDigest;
 
-/** Targeted system-resource observations; no installed-app inventory or identifiers. */
+/** Targeted system-resource observations; no installed-app inventory. */
 public final class ResourceCollector {
     private ResourceCollector(){}
-    public static final String[] PACKAGES={"android","com.android.settings","com.android.systemui","com.miui.securitycenter","com.miui.home","com.xiaomi.market","com.huawei.hwid","com.huawei.appmarket","com.heytap.market","com.oplus.safecenter","com.bbk.appstore","com.bbk.launcher2","com.hihonor.appmarket"};
+    public static final String[] PACKAGES={"android","com.android.settings","com.android.systemui","com.miui.securitycenter","com.miui.home","com.xiaomi.market","com.huawei.hwid","com.huawei.appmarket","com.heytap.market","com.oplus.safecenter","com.bbk.appstore","com.bbk.launcher2","com.hihonor.appmarket","com.hihonor.id","com.coloros.safecenter"};
     public static void collect(Context context,JSONObject report,boolean consent) throws Exception {
         if(!consent)throw new IllegalStateException("Consent required before collecting resources");
         JSONObject signals=report.getJSONObject("signals");
@@ -55,6 +55,7 @@ public final class ResourceCollector {
             packages.put(item);
         }
         put(signals,"systemPackages",packages);
+        RiskCollector.collect(context,signals);
         @SuppressWarnings("deprecation") PackageInfo own=pm.getPackageInfo(context.getPackageName(),Build.VERSION.SDK_INT>=28?PackageManager.GET_SIGNING_CERTIFICATES:PackageManager.GET_SIGNATURES);
         @SuppressWarnings("deprecation") Signature[] ownSignatures=Build.VERSION.SDK_INT>=28?own.signingInfo.getApkContentsSigners():own.signatures;
         JSONArray ownDigests=new JSONArray();for(Signature signature:ownSignatures)ownDigests.put(hex(MessageDigest.getInstance("SHA-256").digest(signature.toByteArray())));

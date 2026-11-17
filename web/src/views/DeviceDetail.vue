@@ -12,10 +12,11 @@ import LineChart from '../components/LineChart.vue'
 import StackedColumns from '../components/StackedColumns.vue'
 import ResourcePanel from '../components/ResourcePanel.vue'
 import Icon from '../components/Icon.vue'
+import AllItems from '../components/AllItems.vue'
 
 const packageNames = { android: '系统框架', 'com.android.settings': '系统设置', 'com.android.systemui': '系统界面', 'com.miui.securitycenter': '小米安全中心', 'com.miui.home': '小米桌面', 'com.xiaomi.market': '小米应用商店', 'com.huawei.hwid': '华为移动服务', 'com.huawei.appmarket': '华为应用市场', 'com.heytap.market': '欢太软件商店', 'com.oplus.safecenter': '系统安全中心', 'com.bbk.appstore': 'vivo 应用商店', 'com.bbk.launcher2': 'vivo 桌面', 'com.hihonor.appmarket': '荣耀应用市场' }
 const sensorTypes = { 1: '加速度', 2: '磁场', 3: '方向', 4: '陀螺仪', 5: '光线', 8: '距离', 9: '重力', 10: '线性加速度', 11: '旋转矢量', 14: '未校准磁场', 15: '游戏旋转', 16: '未校准陀螺仪', 17: '显著运动', 18: '步行检测', 19: '计步器', 20: '地磁旋转', 22: '倾斜检测', 27: '设备方向', 29: '静止检测', 30: '运动检测', 35: '未校准加速度' }
-const tabs = { risk: '风险分析', events: '业务事件', hardware: '设备参数', apps: '应用与签名', network: '网络与定位', history: '关联与轨迹', raw: '原始数据' }
+const tabs = { risk: '风险分析', events: '业务事件', hardware: '设备参数', apps: '应用与签名', network: '网络与定位', history: '关联与轨迹', items: '全部条目', raw: '原始数据' }
 
 const data = ref(null)
 const busy = ref(false)
@@ -59,6 +60,7 @@ const groups = computed(() => {
     { name: '内存与存储', fields: [['运行内存', mem ? gib(mem.totalBytes) : gib(j?.memoryBytes)], ['当前可用内存', gib(mem?.availableBytes)], ['数据分区容量', gib(storage?.totalBytes)], ['分区可用空间', gib(storage?.availableBytes)], ['内存紧张', mem?.lowMemory]] },
     { name: '系统与显示', fields: [['Android 版本', os?.release], ['API 版本', os?.sdk], ['安全更新', os?.patch], ['系统版本', os?.display], ['构建类型', os?.type], ['内核', n?.kernelRelease], ['启动程序', os?.bootloader], ['开机时长', os?.uptimeMillis != null ? Math.floor(os.uptimeMillis / 3600000) + ' 小时' : null], ['显示区域', screen ? screen.widthPixels + ' × ' + screen.heightPixels : null], ['显示密度', screen?.densityDpi != null ? screen.densityDpi + ' dpi' : null], ['字体缩放', screen?.fontScale], ['系统指纹', sig('buildFingerprint')]] },
     runtime.value,
+    tooling.value,
     { name: '电源状态', fields: [['当前电量', battery && battery.scale > 0 && battery.level >= 0 ? Math.round((battery.level / battery.scale) * 100) + '%' : null], ['电池温度', battery?.temperatureTenthsC >= 0 ? battery.temperatureTenthsC / 10 + ' ℃' : null], ['电池电压', battery?.voltageMillivolts > 0 ? battery.voltageMillivolts + ' mV' : null], ['供电方式', battery ? { 0: '电池', 1: '交流电', 2: 'USB', 4: '无线充电' }[battery.plugged] || '其他' : null]] },
   ]
 })
@@ -86,6 +88,23 @@ const runtime = computed(() => {
     ['SIM 运营商', sig('simOperator')],
     ['注册网络', sig('operator')],
     ['漫游', sig('networkRoaming')],
+  ] }
+})
+const tooling = computed(() => {
+  const n = sig('integrityNative'), apps = sig('riskApps'), a = sig('accessibility'), auto = sig('automation'), hooks = sig('javaHooks'), ports = n?.ports
+  const touches = auto?.touches
+  return { name: '工具与自动化', fields: [
+    ['风险应用', apps ? listText(apps.installed) : signalStatus('riskApps')],
+    ['无障碍', a ? (a.enabled ? '已开启' : '未开启') : null],
+    ['无障碍服务', a ? listText(a.services.map(s => s.package + (s.system ? '（系统）' : '') + (s.gestures ? ' 可模拟手势' : ''))) : null],
+    ['点击来源', touches ? (touches.downs ? touches.downs + ' 次按下，' + touches.synthetic + ' 次为模拟点击' : '未记录') : null],
+    ['Monkey 模式', auto?.monkey],
+    ['Xposed 类', listText(hooks?.classes)],
+    ['注入代码', listText(n?.injectedCode)],
+    ['本地监听端口', ports ? (ports.count ? ports.loopback.join('、') + (ports.count > ports.loopback.length ? ' 等 ' + ports.count + ' 个' : '') : '无') : null],
+    ['Frida 端口', listText(ports?.frida)],
+    ['局域网可访问端口', listText(ports?.exposed)],
+    ['端口扫描耗时', ports ? ports.scanMillis + ' ms' : null],
   ] }
 })
 const networkHistory = computed(() => {
@@ -395,6 +414,8 @@ async function revoke() {
         </section>
       </div>
     </template>
+
+    <AllItems v-if="tab === 'items'" :report="r" :factors="p.factors || []" />
 
     <section v-if="tab === 'raw'" class="card">
       <div class="card-head"><h2>最近一次上报原始数据</h2><button class="small" @click="exportRecord"><Icon name="download" />导出完整档案</button></div>

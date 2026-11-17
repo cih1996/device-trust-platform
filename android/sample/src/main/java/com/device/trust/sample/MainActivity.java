@@ -15,6 +15,8 @@ import com.device.trust.secure.PinnedHttp;
 import com.device.trust.secure.SecureReporter;
 import com.device.trust.secure.ResourceCollector;
 import com.device.trust.secure.DeviceTrustClient;
+import com.device.trust.secure.TouchAudit;
+import android.view.MotionEvent;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 
@@ -26,6 +28,7 @@ public class MainActivity extends Activity {
     private CheckBox consent,location;
     private interface Task {void run() throws Exception;}
 
+    @Override public boolean dispatchTouchEvent(MotionEvent event){TouchAudit.record(event);return super.dispatchTouchEvent(event);}
     @Override public void onCreate(Bundle state){
         super.onCreate(state);
         LinearLayout layout=new LinearLayout(this);layout.setOrientation(LinearLayout.VERTICAL);layout.setPadding(32,32,32,32);layout.setFitsSystemWindows(true);

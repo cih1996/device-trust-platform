@@ -380,6 +380,9 @@ func (s *Server) secure(w http.ResponseWriter, r *http.Request) {
 	}
 	if s.Resources != nil {
 		report.Resources, err = s.Resources.Assess(report)
+		if err == nil {
+			err = s.locationJump(&report)
+		}
 		if err != nil {
 			fail(w, 500, err)
 			return

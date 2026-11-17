@@ -314,9 +314,13 @@ func (e *ResourceEngine) Assess(r Report) (*ResourceAssessment, error) {
 		ipISP, ipCountry = result.IP.ISP, result.IP.Country
 	}
 	carrierChecks(r, ipISP, ipCountry, add)
-	var gps gpsObservation
-	gpsErr := signalObject(r, "location", &gps)
-	fresh := gpsErr == nil && gps.Age != nil && *gps.Age >= 0 && *gps.Age <= 120000 && gps.Accuracy != nil && *gps.Accuracy > 0 && *gps.Accuracy <= 5000 && gps.Latitude >= -90 && gps.Latitude <= 90 && gps.Longitude >= -180 && gps.Longitude <= 180 && gps.Coordinates == "WGS84"
+	egressChecks(r, result.IP, add)
+	sim := stringSignal(r, "simOperator")
+	if jErr == nil {
+		vendorPackageChecks(r, java, strings.HasPrefix(sim, "460") || (result.IP != nil && result.IP.CountryCode == "CN"), add)
+	}
+	gps, gpsErr := gpsFix(r)
+	fresh := gpsErr == nil && freshFix(gps)
 	if gpsErr != nil {
 		add("gps_coverage", "unknown", "network", gpsErr.Error(), "client", 0)
 	} else if gps.Mock {
@@ -356,6 +360,7 @@ func (e *ResourceEngine) Assess(r Report) (*ResourceAssessment, error) {
 		if !matched {
 			add("cell_location", "unknown", "network", "没有对应的可信基站坐标，未进行距离判断", e.Catalog.Version, 0)
 		}
+		cellChecks(r, cells, add)
 	}
 	if fresh && !gps.Mock && result.IP != nil {
 		province, border := locateRegion(gps.Latitude, gps.Longitude, e.Catalog.Regions)
@@ -373,6 +378,16 @@ func (e *ResourceEngine) Assess(r Report) (*ResourceAssessment, error) {
 	}
 	return result, nil
 }
+func gpsFix(r Report) (gpsObservation, error) {
+	var gps gpsObservation
+	return gps, signalObject(r, "location", &gps)
+}
+
+// freshFix is a recent, accurate WGS84 fix: the only kind compared with other sources.
+func freshFix(gps gpsObservation) bool {
+	return gps.Age != nil && *gps.Age >= 0 && *gps.Age <= 120000 && gps.Accuracy != nil && *gps.Accuracy > 0 && *gps.Accuracy <= 5000 && gps.Latitude >= -90 && gps.Latitude <= 90 && gps.Longitude >= -180 && gps.Longitude <= 180 && gps.Coordinates == "WGS84"
+}
+
 func normalizeProvince(v string) string {
 	for _, suffix := range []string{"维吾尔自治区", "壮族自治区", "回族自治区", "特别行政区", "自治区", "省", "市"} {
 		v = strings.TrimSuffix(v, suffix)

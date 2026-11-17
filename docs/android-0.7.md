@@ -36,6 +36,19 @@
 
 分值未经校准，正式启用前应在目标机型上观察误报。
 
+## 0.7.2 新增
+
+| 信号 | 说明 |
+|---|---|
+| `riskApps` | 固定名单（Root/Hook 管理器、多开虚拟机、自动化脚本、虚拟定位、抓包、改内存、远程控制，共 42 个包名）逐个查询是否安装。名单写入 sdk-secure 的 `<queries>`，不申请 `QUERY_ALL_PACKAGES`，不读取应用列表。随机包名的隐藏版本（隐藏 Magisk、寄生式 LSPosed 管理器）看不到 |
+| `accessibility` | `AccessibilityManager` 返回的已开启服务（包名、是否系统应用、能否模拟手势）和 `Settings.Secure` 中登记的服务包名；无障碍开启但没有任何登记服务，说明有 UiAutomation 客户端（UiAutomator、Appium） |
+| `automation` | `ActivityManager.isUserAMonkey()`；`TouchAudit` 统计的按下事件中，压力与面积均为 1 且无接触椭圆的模拟点击数（input 命令、Instrumentation、无障碍手势都是这种形态）。需在 Activity 的 `dispatchTouchEvent` 调用 `TouchAudit.record` |
+| `javaHooks` | 系统与应用类加载器能否加载 XposedBridge、Pine、SandHook 等类；当前调用栈中是否有 Hook 框架帧 |
+| `integrityNative.injectedCode` | 可执行映射来自 `/data/local/tmp`、memfd（排除 ART JIT 缓存）或 `/data` 下已删除文件 |
+| `integrityNative.ports` | 对 127.0.0.1 全部 65535 个 TCP 端口做连接扫描（Android 10 起应用读不到 `/proc/net`），8 线程，约 2 秒；对开放端口并发发送 Frida 的 D-Bus AUTH 与 HTTP 探测，识别任意端口上的 frida-server；再检查这些端口能否经本机网卡地址访问（对局域网开放） |
+
+扫描为降低开销直接发起 `socket`/`connect` 系统调用，跳过 bionic 对每次连接的 netd 打标 IPC；回环连接不需要网络标记。
+
 ## 构建
 
 Linux 可直接构建：`scripts/build-native.sh <NDK 23.1.7779620> <xollvm v0.12.0 Linux LLVM22>`，产物与 Windows 脚本一致。
