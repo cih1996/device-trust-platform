@@ -282,5 +282,12 @@ func (s *Server) deviceDetails(w http.ResponseWriter, r *http.Request, id string
 	}
 	linked := linkedProfiles(profiles(reports, events, ""), links, names, selected.LinkID, selected.ID)
 	lan := lanPeerRows(lanPeers(selected.LatestReport, reports, lanClusterWindow))
-	reply(w, 200, map[string]any{"profile": selected, "reports": history, "events": rows, "accounts": accounts, "trend": trend, "ips": ipList, "linked": linked, "lan": lan})
+	keys := []DeviceRegistration{}
+	if selected.DeviceID != "" {
+		if keys, err = s.deviceKeys(selected.AppID, selected.DeviceID); err != nil {
+			fail(w, 500, err)
+			return
+		}
+	}
+	reply(w, 200, map[string]any{"profile": selected, "reports": history, "events": rows, "accounts": accounts, "trend": trend, "ips": ipList, "linked": linked, "lan": lan, "keys": keys})
 }

@@ -195,7 +195,12 @@ func (s *Server) challenge(w http.ResponseWriter, r *http.Request) {
 	challenge := Challenge{ID: token(), AppID: app.ID, EventID: input.EventID, AccountID: input.AccountID, Type: input.Type, Context: input.Context, ClientIP: input.ClientIP, KeyID: input.KeyID, Nonce: randomBytes(32), ServerPublicKey: public, ExpiresAt: time.Now().UTC().Add(3 * time.Minute)}
 	challenge.HardwareRequired = security.RequireHardware
 	if input.KeyID != "" {
-		if challenge.LANTargets, err = s.lanTargets(app.ID, "key:"+input.KeyID); err != nil {
+		reg, err := s.registration(app.ID, input.KeyID)
+		if err != nil {
+			fail(w, 500, err)
+			return
+		}
+		if challenge.LANTargets, err = s.lanTargets(app.ID, reg.InstallationID()); err != nil {
 			fail(w, 500, err)
 			return
 		}
@@ -376,12 +381,13 @@ func (s *Server) secure(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	report := Report{ID: digest("secure:" + challenge.ID), AppID: app.ID, InstallationID: "key:" + key.ID, Package: app.Package, Signals: input.Signals, ObservedIP: ip, ReceivedAt: time.Now().UTC(), Proof: &ReportProof{KeyID: key.ID, Level: proof.Level, Issue: proof.Issue, Error: proof.Error, ChallengeID: challenge.ID, EventID: challenge.EventID, PayloadHash: digest(string(payload)), VerifiedAt: time.Now().UTC(), EnrolledAt: key.Proof.VerifiedAt}}
-	deviceID, err := s.registerDevice(app.ID, key.ID)
+	registration, identityIssues, err := s.registerDevice(app.ID, key.ID, Report{Signals: input.Signals})
 	if err != nil {
 		fail(w, 500, err)
 		return
 	}
-	report.DeviceID = deviceID
+	report.DeviceID = registration.DeviceID
+	report.InstallationID = registration.InstallationID()
 	report.Purpose = challenge.Type
 	if report.LinkID, err = s.linkDevice(report); err != nil {
 		fail(w, 500, err)
@@ -398,6 +404,11 @@ func (s *Server) secure(w http.ResponseWriter, r *http.Request) {
 		if err == nil {
 			err = s.cellCluster(&report)
 		}
+		if err == nil {
+			for _, issue := range identityIssues {
+				report.Resources.Checks = append(report.Resources.Checks, ResourceCheck{Code: issue.Code, State: "conflict", Dimension: "device", Detail: issue.Detail, Source: "server", Points: issue.Points})
+			}
+		}
 		if err != nil {
 			fail(w, 500, err)
 			return
@@ -413,13 +424,13 @@ func (s *Server) secure(w http.ResponseWriter, r *http.Request) {
 			fail(w, 409, errors.New("challenge already used for another report"))
 			return
 		}
-		reply(w, 200, map[string]string{"reportId": old.ID, "deviceId": deviceID, "keyId": key.ID, "proofLevel": old.Proof.Level})
+		reply(w, 200, map[string]string{"reportId": old.ID, "deviceId": registration.DeviceID, "keyId": key.ID, "proofLevel": old.Proof.Level})
 		return
 	} else if err != nil {
 		fail(w, 500, err)
 		return
 	}
-	reply(w, 201, map[string]string{"reportId": report.ID, "deviceId": deviceID, "keyId": key.ID, "proofLevel": proof.Level})
+	reply(w, 201, map[string]string{"reportId": report.ID, "deviceId": registration.DeviceID, "keyId": key.ID, "proofLevel": proof.Level})
 }
 func (s *Server) enroll(w http.ResponseWriter, frame secureFrame, challenge storedChallenge, app App, security AppSecurity) {
 	if challenge.KeyID != "" {

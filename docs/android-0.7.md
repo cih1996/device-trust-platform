@@ -63,6 +63,12 @@
 | `lan` | 第一个 Wi-Fi / 以太网网络，或网卡名为 `eth*` / `wlan*` 的网络（箱式、云手机常把 eth0 标成移动网络），VPN 之下的物理网络也能取到：IPv4 地址与前缀、默认网关、IPv4 DNS、DHCP 服务器（API 30+）、网卡名、系统标记的网络类型。只用 `ACCESS_NETWORK_STATE` |
 | `lanProbe` | 挑战带 `lanTargets` 时，`SecureReporter.upload` 在签名前探测这些地址：只接受点分十进制且位于本机网段内的地址（不经 DNS），16 线程，每项 300 ms，总预算 3 秒。`InetAddress.isReachable`（无特权 ICMP，失败时 TCP 7 端口）判断可达，TCP 连接 5555 判断 ADB 无线调试；同时探测网关 |
 
+## 0.7.6 新增
+
+| 信号 | 说明 |
+|---|---|
+| `drmId` | `MediaDrm(Widevine).getPropertyByteArray(PROPERTY_DEVICE_UNIQUE_ID)` 的 SHA-256，不需要权限，原值不离开手机；与 ANDROID_ID 同受 `includeAndroidId` 控制。平台用它在重装后找回原 deviceId |
+
 ## 构建
 
 Linux 可直接构建：`scripts/build-native.sh <NDK 23.1.7779620> <xollvm v0.12.0 Linux LLVM22>`，产物与 Windows 脚本一致。

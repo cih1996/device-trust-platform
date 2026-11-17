@@ -142,6 +142,7 @@ const signalStatus = key => {
   return s ? { available: '已采集', disabled: '未开启', permission_denied: '未授权', unavailable: '暂不可用', error: '采集出错' }[s.status] || s.status : '未上报'
 }
 const signalReason = key => r.value?.signals?.[key]?.reason || signalStatus(key)
+const keyMethods = { new: '新设备', android_id: 'ANDROID_ID 一致', drm: 'Widevine 设备 ID 一致', boot_session: '同一次开机且硬件一致' }
 const keyState = computed(() => ({ revoked: { text: '密钥已停用', cls: 'bad' }, active: { text: '密钥有效', cls: 'good' }, legacy: { text: '未签名上报', cls: '' } }[p.value?.keyStatus] || { text: p.value?.keyStatus, cls: '' }))
 
 function exportRecord() {
@@ -303,6 +304,16 @@ async function revoke() {
             <dt>硬件证明</dt><dd :title="r.proof?.attestationError">{{ attestation(r.proof) }}</dd>
           </dl>
           <p v-else class="muted" style="margin:0">本次上报没有应用版本与签名信息</p>
+        </div>
+      </section>
+      <section class="card" style="margin-bottom:16px">
+        <div class="card-head"><h2>设备密钥</h2><span class="sub">每次安装或清除数据会生成新密钥，设备 ID 保持不变</span></div>
+        <div class="table-wrap">
+          <table v-if="data.keys.length">
+            <thead><tr><th>登记时间</th><th>密钥</th><th>认出依据</th></tr></thead>
+            <tbody><tr v-for="k in data.keys" :key="k.keyId"><td>{{ fullTime(k.createdAt) }}</td><td class="mono">{{ k.keyId.slice(0, 16) }}…<span v-if="r.proof && r.proof.keyId === k.keyId" class="tag good" style="margin-left:6px">当前</span></td><td>{{ keyMethods[k.method] || '新设备' }}</td></tr></tbody>
+          </table>
+          <div v-else class="empty">未签名上报，没有设备密钥</div>
         </div>
       </section>
       <section class="card">

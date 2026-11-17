@@ -1,4 +1,4 @@
-# 业务服务端接入 · 0.7.5
+# 业务服务端接入 · 0.7.6
 
 本文写给接入 DeviceTrust 的业务后端：App 怎样把设备交给风控，后端怎样查询设备环境、评估业务事件，以及同一开发者的多个 App 怎样关联到同一台手机。
 
@@ -10,7 +10,7 @@
 |---|---|---|
 | appId | App、业务后端 | 在工作台“应用管理”创建应用得到，公开 |
 | appKey | 仅业务后端 | 创建时只显示一次；所有 `/v1/*` 后端接口以 `Authorization: Bearer <appKey>` 调用 |
-| deviceId | 平台签发 | 一个 App 安装的设备密钥（Android Keystore）登记后得到；同一 App 内稳定，不能作为登录或授权凭据 |
+| deviceId | 平台签发 | 同一 App 内一台设备的稳定 ID：卸载重装、清除数据后重新登记，平台认出是同一台设备会沿用原 ID（见 6.3）；不能作为登录或授权凭据 |
 | linkId | 平台计算 | 同一台手机在你多个 App 中的设备归为一组，见第 6 节 |
 | eventId | 业务后端 | 一次业务请求的唯一 ID，由后端生成并持久保存，用于幂等 |
 | reportId | 平台签发 | 一次签名上报；App 上传后得到，交回业务后端查询 |
@@ -233,6 +233,23 @@ SDK 0.7.4 起上报 `lan`：Wi-Fi / 有线网络（包括被系统标成移动�
 
 数据来源：OpenCelliD（opencellid.org），CC BY-SA 4.0。
 
+## 6.3 稳定的 deviceId
+
+每次安装都会生成新的 Keystore 设备密钥。新密钥登记时，平台在同一 App 已知的设备中查找同一台手机，找到就沿用原 deviceId 和设备档案，只记一把新密钥：
+
+| 顺序 | 依据 | 说明 |
+|---|---|---|
+| 1 | ANDROID_ID（按 App 签名隔离） | 卸载重装不变，恢复出厂会变 |
+| 2 | Widevine 设备 ID 的 SHA-256 | 多数机型卸载重装不变；SDK 只上报摘要 |
+| 3 | 同一次开机且硬件参数一致 | 不依赖标识，适合关闭了标识采集的情况 |
+
+- 防伪：标识相同但硬件（型号、存储容量、屏幕）不同时不会合并，并记 `device_identity_clone`（30 分）。
+- 改机：靠另一个标识认出同一台设备、但 ANDROID_ID 或 DRM ID 变了，记 `device_identifier_changed`（20 分）。
+- 24 小时内同一设备登记 ≥ 3 把新密钥，记 `frequent_reinstall`（20 分）。
+- deviceId 仍按 App 区分，不同 App 之间用 linkId 关联。
+- `DeviceTrust.Options` 的 `includeAndroidId` 同时控制 ANDROID_ID 和 Widevine ID 摘要；关闭后只能靠第 3 种方式认出重装。
+- 只对 0.7.6 起的新登记生效；之前已经分裂的历史 deviceId 不会被合并。工作台设备详情“应用与签名”页可以看到每次登记的密钥和认出依据。
+
 ## 7. 其他语言示例
 
 Go 可以直接使用 `pkg/businessguard`：
@@ -315,6 +332,7 @@ const verdict = await response.json()
 | cell_operator_mismatch / cell_sim_country_mismatch | 注册基站与系统报告的运营商 / SIM 国家不符（运营商被篡改） | 25 / 20 |
 | lan_device_cluster | 24 小时内同一局域网 ≥ 5 台手机 | 20 |
 | lan_adb_peers | 同局域网设备开放 ADB 无线调试端口 5555 | 30 |
+| device_identity_clone / device_identifier_changed / frequent_reinstall | 设备标识被复制到硬件不同的设备 / 同一设备的标识被修改 / 24 小时内重装 ≥ 3 次 | 30 / 20 / 20 |
 | location_jump | 同一手机两次定位间的速度超过 900 km/h（且距离超过 100 km） | 25 |
 | mock_location / cell_gps_mismatch / ip_gps_region_mismatch | 系统标记模拟定位 / 定位与注册基站相距超过 max(3 倍覆盖半径, 20 km) / 网络与定位区域不一致 | 20 / 25 / 10 |
 | cell_identity_implausible | 国内 LTE/NR 注册基站不在基站库中，且编号像模拟器占位值（Cell ID < 65536，或 1234、5678、9999 这类数字） | 25 |

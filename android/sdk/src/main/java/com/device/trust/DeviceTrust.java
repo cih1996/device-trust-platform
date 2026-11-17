@@ -5,6 +5,8 @@ import android.content.SharedPreferences;
 import android.content.pm.ApplicationInfo;
 import android.content.pm.PackageManager;
 import android.accessibilityservice.AccessibilityServiceInfo;
+import android.media.MediaDrm;
+import android.media.UnsupportedSchemeException;
 import android.net.LinkAddress;
 import android.net.LinkProperties;
 import android.net.RouteInfo;
@@ -30,6 +32,8 @@ import java.net.Inet4Address;
 import java.net.InetAddress;
 import java.net.URL;
 import java.nio.charset.StandardCharsets;
+import java.security.MessageDigest;
+import java.security.NoSuchAlgorithmException;
 import java.util.UUID;
 
 /** Explicit, synchronous API callable from Java and Kotlin. No automatic initialization. */
@@ -38,6 +42,7 @@ public final class DeviceTrust {
 
     public static final class Options {
         public final String appId;
+        /** Device identifiers: ANDROID_ID and a digest of the Widevine device ID. */
         public final boolean includeAndroidId;
         public Options(String appId, boolean includeAndroidId) {
             if (appId == null || appId.isEmpty()) throw new IllegalArgumentException("appId required");
@@ -69,7 +74,11 @@ public final class DeviceTrust {
             String value = Settings.Secure.getString(app.getContentResolver(), Settings.Secure.ANDROID_ID);
             if (value == null || value.isEmpty()) status(signals,"androidId","unavailable","system returned no value");
             else available(signals, "androidId", value);
-        } else status(signals,"androidId","disabled","host configuration");
+            drmId(signals);
+        } else {
+            status(signals,"androidId","disabled","host configuration");
+            status(signals,"drmId","disabled","host configuration");
+        }
         runtime(app, signals);
         ConnectivityManager cm = (ConnectivityManager) app.getSystemService(Context.CONNECTIVITY_SERVICE);
         Network network = cm.getActiveNetwork();
@@ -194,6 +203,38 @@ public final class DeviceTrust {
             return;
         }
         status(signals, "lan", "unavailable", "no Wi-Fi or Ethernet network");
+    }
+    private static final UUID WIDEVINE = new UUID(0xEDEF8BA979D64ACEL, 0xA3C827DCD51D21EDL);
+
+    /**
+     * SHA-256 of the Widevine device unique ID. It survives app reinstall on most devices and
+     * lets the server keep one device ID across Keystore keys; the raw value never leaves the phone.
+     */
+    @SuppressWarnings("deprecation") // MediaDrm.release: close() exists only from API 28.
+    private static void drmId(JSONObject signals) throws JSONException {
+        MediaDrm drm = null;
+        try {
+            drm = new MediaDrm(WIDEVINE);
+            byte[] id = drm.getPropertyByteArray(MediaDrm.PROPERTY_DEVICE_UNIQUE_ID);
+            if (id == null || id.length == 0) status(signals, "drmId", "unavailable", "empty Widevine device ID");
+            else available(signals, "drmId", sha256(id));
+        } catch (UnsupportedSchemeException e) {
+            status(signals, "drmId", "unavailable", "Widevine not supported");
+        } catch (RuntimeException e) {
+            status(signals, "drmId", "error", e.toString());
+        } finally {
+            if (drm != null) { if (Build.VERSION.SDK_INT >= 28) drm.close(); else drm.release(); }
+        }
+    }
+    private static String sha256(byte[] data) {
+        try {
+            byte[] h = MessageDigest.getInstance("SHA-256").digest(data);
+            StringBuilder out = new StringBuilder();
+            for (byte b : h) out.append(String.format("%02x", b));
+            return out.toString();
+        } catch (NoSuchAlgorithmException e) {
+            throw new IllegalStateException(e);
+        }
     }
     static void available(JSONObject signals,String name,Object value) throws JSONException {
         signals.put(name,new JSONObject().put("status","available").put("value",value));
