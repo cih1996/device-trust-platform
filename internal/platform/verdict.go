@@ -21,6 +21,7 @@ type Verdict struct {
 	Factors       []RuleHit     `json:"factors"`
 	App           AppIntegrity  `json:"app"`
 	Linked        LinkedSummary `json:"linked"`
+	LAN           LANSummary    `json:"lan"`
 	ObservedIP    string        `json:"observedIp"`
 	Region        *IPRegion     `json:"region,omitempty"`
 	ReportedAt    time.Time     `json:"reportedAt"`
@@ -42,6 +43,13 @@ type LinkedSummary struct {
 	Apps         int `json:"apps"`
 	MaxRiskScore int `json:"maxRiskScore"`
 	HighRisk     int `json:"highRisk"`
+}
+
+// LANSummary counts other handsets seen on the same LAN in the last 24 hours,
+// across all apps, and peers the SDK found with ADB over Wi-Fi open.
+type LANSummary struct {
+	Devices  int `json:"devices"`
+	ADBPeers int `json:"adbPeers"`
 }
 
 const verdictReportAge = 15 * time.Minute
@@ -206,6 +214,11 @@ func (s *Server) verdict(a App, report Report) (Verdict, error) {
 		}
 	}
 	v.Linked.Apps = len(apps)
+	v.LAN.Devices = len(lanPeers(report, reports, lanClusterWindow))
+	var probe lanProbeResult
+	if signalObject(report, "lanProbe", &probe) == nil {
+		v.LAN.ADBPeers = len(probe.ADB)
+	}
 	return v, nil
 }
 

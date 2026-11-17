@@ -145,6 +145,12 @@ type Verdict struct {
 		MaxRiskScore int `json:"maxRiskScore"`
 		HighRisk     int `json:"highRisk"`
 	} `json:"linked"`
+	// LAN counts other handsets on the same LAN in the last 24 hours and peers
+	// found with ADB over Wi-Fi open (studio clusters).
+	LAN struct {
+		Devices  int `json:"devices"`
+		ADBPeers int `json:"adbPeers"`
+	} `json:"lan"`
 }
 
 // Verdict assesses a fresh signed report. eventID and accountID must be the

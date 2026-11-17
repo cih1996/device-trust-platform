@@ -38,6 +38,7 @@ function setSort(value) { setQuery({ sort: value, offset: '' }) }
 function pageBy(delta) { setQuery({ offset: Math.max(0, offset.value + delta * LIMIT) || '' }) }
 
 function model(p) { return p.latestReport.signals?.model?.value || '未识别机型' }
+function lanIp(p) { return p.latestReport.signals?.lan?.value?.addresses?.[0]?.address || '' }
 function brand(p) { return p.latestReport.signals?.manufacturer?.value || '' }
 function envState(p) {
   if (p.keyStatus === 'revoked') return { text: '密钥已停用', cls: 'bad' }
@@ -67,7 +68,7 @@ function envState(p) {
     <section class="card" :class="{ loading }">
       <div class="filters">
         <form class="search" @submit.prevent="submit" style="display:flex;gap:8px">
-          <input v-model="search" type="search" placeholder="设备 ID、机型、品牌或 IP" aria-label="搜索设备" style="flex:1">
+          <input v-model="search" type="search" placeholder="设备 ID、机型、品牌、IP 或内网 IP" aria-label="搜索设备" style="flex:1">
           <button>搜索</button>
         </form>
         <div class="seg" aria-label="风险等级">
@@ -109,7 +110,7 @@ function envState(p) {
               <td v-if="!appId">{{ appName(p.appId) }}</td>
               <td class="right num"><span :class="['tag', { warn: p.accountCount >= 3 }]">{{ p.accountCount }}</span></td>
               <td class="right num">{{ p.eventCount }}<span v-if="p.highEvents" class="sub" style="color:var(--high-ink)">高风险 {{ p.highEvents }}</span></td>
-              <td><span class="mono">{{ p.lastIp || '—' }}</span><span class="sub">{{ region(p.region) }}</span></td>
+              <td><span class="mono">{{ p.lastIp || '—' }}</span><span class="sub">{{ region(p.region) }}</span><span v-if="lanIp(p)" class="sub mono">内网 {{ lanIp(p) }}</span></td>
               <td><span :class="['tag', envState(p).cls]">{{ envState(p).text }}</span></td>
               <td :title="fullTime(p.lastSeen)">{{ relative(p.lastSeen) }}</td>
             </tr>

@@ -5,7 +5,9 @@ import android.content.SharedPreferences;
 import android.content.pm.ApplicationInfo;
 import android.content.pm.PackageManager;
 import android.accessibilityservice.AccessibilityServiceInfo;
+import android.net.LinkAddress;
 import android.net.LinkProperties;
+import android.net.RouteInfo;
 import android.net.ProxyInfo;
 import android.view.accessibility.AccessibilityManager;
 import android.net.ConnectivityManager;
@@ -17,12 +19,15 @@ import android.os.Looper;
 import android.os.Process;
 import android.provider.Settings;
 import android.telephony.TelephonyManager;
+import org.json.JSONArray;
 import org.json.JSONException;
 import org.json.JSONObject;
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.net.HttpURLConnection;
+import java.net.Inet4Address;
+import java.net.InetAddress;
 import java.net.URL;
 import java.nio.charset.StandardCharsets;
 import java.util.UUID;
@@ -88,6 +93,7 @@ public final class DeviceTrust {
             else available(signals,"activeInterface",iface);
             available(signals,"networkSnapshot",new JSONObject().put("wifi",caps.hasTransport(NetworkCapabilities.TRANSPORT_WIFI)).put("cellular",caps.hasTransport(NetworkCapabilities.TRANSPORT_CELLULAR)).put("vpn",caps.hasTransport(NetworkCapabilities.TRANSPORT_VPN)).put("validated",caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_VALIDATED)).put("metered",!caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_NOT_METERED)));
         }
+        lan(cm, signals);
         if (app.getPackageManager().hasSystemFeature(PackageManager.FEATURE_TELEPHONY)) {
             TelephonyManager tm = (TelephonyManager) app.getSystemService(Context.TELEPHONY_SERVICE);
             String operator = tm.getNetworkOperator();
@@ -159,6 +165,35 @@ public final class DeviceTrust {
             if (code != 201) throw new IOException("HTTP " + code + ": " + response);
             return new JSONObject(response).getString("reportId");
         } finally { connection.disconnect(); }
+    }
+    /**
+     * IPv4 addressing of the Wi-Fi or Ethernet network (not a VPN on top of it): lets the
+     * server group handsets behind one router and tell the operator which phone this is.
+     */
+    @SuppressWarnings("deprecation") // getAllNetworks: the only way to reach the LAN underneath an active VPN.
+    private static void lan(ConnectivityManager cm, JSONObject signals) throws JSONException {
+        for (Network network : cm.getAllNetworks()) {
+            NetworkCapabilities caps = cm.getNetworkCapabilities(network);
+            LinkProperties link = cm.getLinkProperties(network);
+            if (caps == null || link == null || caps.hasTransport(NetworkCapabilities.TRANSPORT_VPN)) continue;
+            String transport = caps.hasTransport(NetworkCapabilities.TRANSPORT_WIFI) ? "wifi" : caps.hasTransport(NetworkCapabilities.TRANSPORT_ETHERNET) ? "ethernet" : caps.hasTransport(NetworkCapabilities.TRANSPORT_CELLULAR) ? "cellular" : "other";
+            String name = link.getInterfaceName();
+            // A LAN NIC labelled as cellular (cloud and box phones) still counts; the label is kept.
+            boolean lanInterface = name != null && (name.startsWith("eth") || name.startsWith("wlan"));
+            if (!transport.equals("wifi") && !transport.equals("ethernet") && !lanInterface) continue;
+            JSONArray addresses = new JSONArray(), dns = new JSONArray();
+            for (LinkAddress a : link.getLinkAddresses())
+                if (a.getAddress() instanceof Inet4Address) addresses.put(new JSONObject().put("address", a.getAddress().getHostAddress()).put("prefix", a.getPrefixLength()));
+            String gateway = null;
+            for (RouteInfo route : link.getRoutes())
+                if (route.isDefaultRoute() && route.getGateway() instanceof Inet4Address) gateway = route.getGateway().getHostAddress();
+            for (InetAddress server : link.getDnsServers()) if (server instanceof Inet4Address) dns.put(server.getHostAddress());
+            JSONObject value = new JSONObject().put("transport", transport).put("interface", name).put("addresses", addresses).put("gateway", gateway).put("dns", dns);
+            if (Build.VERSION.SDK_INT >= 30 && link.getDhcpServerAddress() != null) value.put("dhcpServer", link.getDhcpServerAddress().getHostAddress());
+            available(signals, "lan", value);
+            return;
+        }
+        status(signals, "lan", "unavailable", "no Wi-Fi or Ethernet network");
     }
     static void available(JSONObject signals,String name,Object value) throws JSONException {
         signals.put(name,new JSONObject().put("status","available").put("value",value));

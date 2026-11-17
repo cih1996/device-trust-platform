@@ -142,3 +142,37 @@ func TestCrossAppLinksAndVerdicts(t *testing.T) {
 	store.put("reports", stored.ID, stored)
 	request(t, x.h, "POST", "/v1/verdicts", "secret-a", verdict, 410)
 }
+
+func TestEnrollmentWithKeystoreAttestationFailure(t *testing.T) {
+	store, err := Open(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	signer := hex.EncodeToString(randomBytes(32))
+	store.put("apps", "soft", App{ID: "soft", Package: "com.test.soft", KeyHash: digest("secret-soft")})
+	store.put("security", "soft", AppSecurity{RequireSignedReports: true, MaxEnrollmentHours: 24})
+	store.put("apps", "hard", App{ID: "hard", Package: "com.test.hard", KeyHash: digest("secret-hard")})
+	store.put("security", "hard", AppSecurity{RequireSignedReports: true, RequireHardware: true, MaxEnrollmentHours: 24, SigningDigests: []string{signer}})
+	server := &Server{Store: store, AdminToken: "admin"}
+	h := server.Handler(t.TempDir())
+	enroll := func(appID string, status int) {
+		raw, _ := json.Marshal(request(t, h, "POST", "/v1/challenges", "secret-"+appID, map[string]any{"appId": appID, "eventId": "e-" + appID, "accountId": "u1", "type": "login"}, 201))
+		var challenge Challenge
+		json.Unmarshal(raw, &challenge)
+		if challenge.HardwareRequired != (appID == "hard") {
+			t.Fatal("hardwareRequired", challenge.HardwareRequired)
+		}
+		key, _ := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+		body, _ := json.Marshal(map[string]any{"certificateChain": []string{selfSigned(t, key)}, "attestationError": "ProviderException: Failed to generate key pair <- KeyStoreException: -10003"})
+		binaryRequest(t, h, makeFrame(t, 1, challenge, key, body), status)
+		if status != 201 {
+			return
+		}
+		var accepted enrollment
+		if err := store.get("enrollments", challenge.ID, &accepted); err != nil || accepted.Proof.Level != "signature_only" || accepted.Proof.Issue != "keystore_failed" || accepted.Proof.Error == "" {
+			t.Fatal(accepted, err)
+		}
+	}
+	enroll("soft", 201)
+	enroll("hard", 403)
+}

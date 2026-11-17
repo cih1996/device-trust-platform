@@ -43,3 +43,14 @@ nginx -t
 API 证书公钥若变化，须先发布包含新旧 SPKI pin 的 App/业务配置，再切换证书。当前 pin：AU7LGDAFJUgs4HkcpRf1O7/6OU9avVMvle6wTsAK5m4=。证书续期使用同一公钥时无需更改 pin。APK 与原 0.4 使用同一签名证书，可覆盖升级。
 
 如需撤下本产品，只停用 devicetrust-* 三个服务/定时器并移除 sites-enabled/devicetrust 软链接，nginx -t 后 reload；保留数据目录供恢复。不要停止或覆盖其他站点。
+
+## 发布与备份轮换
+
+每次发布前在服务器上执行 `sudo /opt/devicetrust/bin/backup-data.sh <版本>`（源文件 `deploy/backup-data.sh`）：
+
+- 把 `/var/lib/devicetrust/platform` 打包为 `/opt/devicetrust/backups/data-before-<版本>-<UTC 时间>.tar.gz`，并校验归档可读。
+- 在 `/opt/devicetrust/backups/backup.log` 追加一行：时间、文件名、大小、SHA-256。
+- 只保留最新 10 份数据备份；`releases/` 按版本号只保留最新 10 个，`current` 指向的版本不会删除。每次删除也记入 backup.log。
+- Nginx 快照和 service 文件备份不参与轮换。
+
+恢复数据：停止 devicetrust-platform，把 backup.log 中对应的归档解压到 `/var/lib/devicetrust`，再启动服务。

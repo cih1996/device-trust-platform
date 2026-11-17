@@ -83,18 +83,21 @@ func (s *Server) saveSecurity(w http.ResponseWriter, r *http.Request, appID stri
 }
 
 type Challenge struct {
-	HardwareRequired bool            `json:"hardwareRequired"`
-	ID               string          `json:"id"`
-	AppID            string          `json:"appId"`
-	EventID          string          `json:"eventId"`
-	AccountID        string          `json:"accountId"`
-	Type             string          `json:"type"`
-	Context          BusinessContext `json:"context"`
-	ClientIP         string          `json:"clientIp"`
-	KeyID            string          `json:"keyId"`
-	Nonce            []byte          `json:"nonce"`
-	ServerPublicKey  []byte          `json:"serverPublicKey"`
-	ExpiresAt        time.Time       `json:"expiresAt"`
+	HardwareRequired bool `json:"hardwareRequired"`
+	// LAN addresses of other SDK devices last seen on this device's LAN; the
+	// SDK probes them and reports the result as lanProbe.
+	LANTargets      []string        `json:"lanTargets,omitempty"`
+	ID              string          `json:"id"`
+	AppID           string          `json:"appId"`
+	EventID         string          `json:"eventId"`
+	AccountID       string          `json:"accountId"`
+	Type            string          `json:"type"`
+	Context         BusinessContext `json:"context"`
+	ClientIP        string          `json:"clientIp"`
+	KeyID           string          `json:"keyId"`
+	Nonce           []byte          `json:"nonce"`
+	ServerPublicKey []byte          `json:"serverPublicKey"`
+	ExpiresAt       time.Time       `json:"expiresAt"`
 }
 type storedChallenge struct {
 	Challenge
@@ -191,6 +194,12 @@ func (s *Server) challenge(w http.ResponseWriter, r *http.Request) {
 	}
 	challenge := Challenge{ID: token(), AppID: app.ID, EventID: input.EventID, AccountID: input.AccountID, Type: input.Type, Context: input.Context, ClientIP: input.ClientIP, KeyID: input.KeyID, Nonce: randomBytes(32), ServerPublicKey: public, ExpiresAt: time.Now().UTC().Add(3 * time.Minute)}
 	challenge.HardwareRequired = security.RequireHardware
+	if input.KeyID != "" {
+		if challenge.LANTargets, err = s.lanTargets(app.ID, "key:"+input.KeyID); err != nil {
+			fail(w, 500, err)
+			return
+		}
+	}
 	if err = s.Store.create("challenges", challenge.ID, storedChallenge{challenge, private.Bytes()}); err != nil {
 		fail(w, 500, err)
 		return
@@ -383,6 +392,9 @@ func (s *Server) secure(w http.ResponseWriter, r *http.Request) {
 		if err == nil {
 			err = s.locationJump(&report)
 		}
+		if err == nil {
+			err = s.lanChecks(&report)
+		}
 		if err != nil {
 			fail(w, 500, err)
 			return
@@ -418,6 +430,9 @@ func (s *Server) enroll(w http.ResponseWriter, frame secureFrame, challenge stor
 	}
 	var input struct {
 		Chain []string `json:"certificateChain"`
+		// Set by the SDK when the Keystore failed to attest and it enrolled an
+		// unattested key instead, which it only does if hardware is not required.
+		AttestationError string `json:"attestationError"`
 	}
 	if err = decodePayload(payload, &input); err != nil {
 		fail(w, 400, err)
@@ -439,12 +454,18 @@ func (s *Server) enroll(w http.ResponseWriter, frame secureFrame, challenge stor
 	}
 	// Every enrollment is checked against the attestation roots; only apps that
 	// require hardware reject a failure, the others keep it as evidence.
-	proof, err := s.Trust.verify(input.Chain, challenge.Nonce, app, security)
-	if err != nil && security.RequireHardware {
-		fail(w, 403, err)
-		return
-	}
-	if err != nil {
+	var proof hardwareProof
+	if input.AttestationError != "" {
+		if security.RequireHardware {
+			fail(w, 403, errors.New("device keystore attestation failed: "+input.AttestationError))
+			return
+		}
+		proof = hardwareProof{Level: "signature_only", Issue: "keystore_failed", Error: input.AttestationError, VerifiedAt: time.Now().UTC()}
+	} else if proof, err = s.Trust.verify(input.Chain, challenge.Nonce, app, security); err != nil {
+		if security.RequireHardware {
+			fail(w, 403, err)
+			return
+		}
 		proof = hardwareProof{Level: "signature_only", Issue: attestationIssue(err), Error: err.Error(), VerifiedAt: time.Now().UTC()}
 	}
 	accepted := enrollment{id, digest(string(payload)), proof}

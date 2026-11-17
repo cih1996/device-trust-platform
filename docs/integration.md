@@ -1,4 +1,4 @@
-# 业务服务端接入 · 0.7.2
+# 业务服务端接入 · 0.7.4
 
 本文写给接入 DeviceTrust 的业务后端：App 怎样把设备交给风控，后端怎样查询设备环境、评估业务事件，以及同一开发者的多个 App 怎样关联到同一台手机。
 
@@ -94,7 +94,7 @@ POST /v1/challenges
 ```
 
 - `requestHash` 是后端对“方法 + 路径 + 账号 + 完整业务参数”计算的 SHA-256，不能接受 App 传来的值。算法见 `pkg/businessguard.HashRequest`。
-- 把响应原样交给 App，App 调用 `SecureReporter.upload` 后会得到 `reportId`。
+- 把响应**原样**交给 App，App 调用 `SecureReporter.upload` 后会得到 `reportId`。响应里可能带 `lanTargets`（同局域网其他设备的内网地址，供 SDK 探测），不要删减字段。
 
 ### 4.3 查询设备环境：`POST /v1/verdicts`
 
@@ -122,6 +122,7 @@ POST /v1/challenges
   ],
   "app": {"package": "com.example.app", "signer": "matched", "attestation": "none", "issue": "boot_unlocked"},
   "linked": {"devices": 1, "apps": 1, "maxRiskScore": 90, "highRisk": 1},
+  "lan": {"devices": 6, "adbPeers": 2},
   "observedIp": "113.87.130.104",
   "region": {"country": "中国", "province": "广东省", "city": "深圳市", "isp": "电信"},
   "reportedAt": "2026-11-16T10:00:00Z"
@@ -137,8 +138,9 @@ POST /v1/challenges
 | keyStatus | `active`，或 `revoked`（已在工作台停用） |
 | app.signer | `matched` 签名一致；`mismatch` 签名不符（疑似重打包）；`unknown` 未上报；`unconfigured` 工作台未填写证书 |
 | app.attestation | `tee` / `strongbox`：硬件证明确认包名、签名且启动链锁定；`none`：没有通过 |
-| app.issue | 硬件证明未通过的原因：`boot_unlocked`、`app_mismatch`、`revoked`、`unverified` |
+| app.issue | 硬件证明未通过的原因：`boot_unlocked`、`app_mismatch`、`revoked`、`unverified`、`keystore_failed`（设备 Keystore 无法生成证明，SDK 改用无证明密钥登记；仅在未开启“要求硬件证明”时出现） |
 | linked | 这台手机在你其他 App 中的设备数、涉及应用数、其中最高风险分和高风险设备数 |
+| lan | 24 小时内与它处于同一局域网的其他手机数（跨你的所有 App）；`adbPeers` 为 SDK 探测到开放 ADB 无线调试的同网设备数 |
 
 建议处理方式：`high` 时拒绝或要求更强的核验（短信、人脸）；`medium` 时加验证；`app.signer = mismatch` 或 `app.issue = app_mismatch` 时直接拒绝；`linked.highRisk > 0` 表示这台手机在别的 App 中出现过高风险，可以从严处理。
 
@@ -193,6 +195,33 @@ POST /v1/challenges
 - 关联需要 SDK 0.7 及以上版本。SDK 会采集 ANDROID_ID，请在隐私政策中写明“设备标识用于安全风控”。
 - 关联依据是客户端观测，可能被改机工具篡改。它是风险线索，不能作为身份证明。
 - verdict 的 `linked` 只给出汇总，不会把其他 App 的 deviceId 透露给当前 App 的后端。
+
+## 6.1 局域网聚集（工作室识别）
+
+SDK 0.7.4 起上报 `lan`：Wi-Fi / 有线网络（包括被系统标成移动网络的 eth0，常见于箱式和云手机）的内网地址、网段、网关、DNS。工作台设备列表和详情会显示内网 IP，可按内网 IP 搜索，方便对应到具体手机。
+
+平台用两种依据判断“同一局域网”：
+
+| 依据 | 说明 |
+|---|---|
+| 路由器 BSSID | 需要 App 授予定位权限并采集 Wi-Fi 信息；不同出口的设备只要连同一台路由器也能归到一起 |
+| 出口 IP + 内网网段 + 网关 | 不需要额外权限；同一运营商 NAT 地址后面常有许多家庭都用 192.168.1.0/24，所以必须三者都相同 |
+
+服务端引导探测：老设备申请挑战时，平台在响应里附上 `lanTargets`，即最近 2 小时同一局域网内其他 SDK 设备的内网地址（最多 32 个）。SDK 只探测其中**位于本机网段内**的地址：ICMP 可达性，以及 ADB 无线调试端口 5555，总耗时不超过 3 秒。不会扫描网段内的其他设备。
+
+| 结果 | 规则 |
+|---|---|
+| 24 小时内同一局域网 ≥ 5 台手机 | `lan_device_cluster` 20 分 |
+| 同网设备开放 ADB 无线调试（群控常用） | `lan_adb_peers` 30 分 |
+| 同网设备可达 | 记为“同网设备探测”一致，确认确实在同一网络 |
+| 网关可达但同网设备全部不可达 | 记为“疑似 AP 隔离”，不计分（酒店、公司网络也会隔离），但聚集规则照常生效 |
+
+注意：
+
+- 公司、学校、酒店等公共 Wi-Fi 下多台设备聚集是正常的，`lan_device_cluster` 只是线索，宜结合 `linked`、业务规则一起判断。
+- 各手机分别用移动数据或独立代理时没有局域网可言，需要依靠出口、基站、开机时刻关联等其他规则。
+- 隐私政策需写明：为安全风控，会采集设备内网地址，并检测同一局域网内其他已安装本 SDK 的设备是否可达。
+- Android 正在逐步收紧应用访问局域网的权限，后续目标 API 版本可能需要申请局域网访问权限后才能探测；届时探测结果会显示为不可用，不影响其他规则。
 
 ## 7. 其他语言示例
 
@@ -274,11 +303,13 @@ const verdict = await response.json()
 | datacenter_egress | 出口 IP 属于云服务器或机房（代理、云手机） | 30 |
 | ip_outside_sim_country | 大陆 SIM 未漫游，出口在境外或港澳台 | 20 |
 | cell_operator_mismatch / cell_sim_country_mismatch | 注册基站与系统报告的运营商 / SIM 国家不符（运营商被篡改） | 25 / 20 |
+| lan_device_cluster | 24 小时内同一局域网 ≥ 5 台手机 | 20 |
+| lan_adb_peers | 同局域网设备开放 ADB 无线调试端口 5555 | 30 |
 | location_jump | 同一手机两次定位间的速度超过 900 km/h（且距离超过 100 km） | 25 |
 | mock_location / cell_gps_mismatch / ip_gps_region_mismatch | 系统标记模拟定位 / 基站与定位矛盾 / 网络与定位区域不一致 | 20 / 25 / 10 |
 | 其他资源验真类 | 机型参数、内存、系统应用签名等矛盾 | — |
 
-资源验真类（运营商、出口、基站、定位、厂商系统应用）合计最多计 50 分，避免单一数据源决定结论。
+资源验真类（运营商、出口、基站、定位、厂商系统应用、局域网）合计最多计 50 分，避免单一数据源决定结论。
 | 业务类 | multiple_accounts_24h、registration_device_cluster、campaign_*、payment_* 等 | 见 business-risk.md |
 
 ## 9. 错误码

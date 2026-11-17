@@ -96,7 +96,7 @@ func (s *Server) listDevices(w http.ResponseWriter, r *http.Request) {
 		if level != "" && p.RiskLevel != level {
 			continue
 		}
-		value := p.DeviceID + " " + p.InstallationID + " " + p.LatestReport.ObservedIP + " " + p.LastIP
+		value := p.DeviceID + " " + p.InstallationID + " " + p.LatestReport.ObservedIP + " " + p.LastIP + " " + lanIP(p.LatestReport)
 		for _, key := range []string{"manufacturer", "model"} {
 			value += " " + stringSignal(p.LatestReport, key)
 		}
@@ -281,5 +281,6 @@ func (s *Server) deviceDetails(w http.ResponseWriter, r *http.Request, id string
 		names[a.ID] = a.Name
 	}
 	linked := linkedProfiles(profiles(reports, events, ""), links, names, selected.LinkID, selected.ID)
-	reply(w, 200, map[string]any{"profile": selected, "reports": history, "events": rows, "accounts": accounts, "trend": trend, "ips": ipList, "linked": linked})
+	lan := lanPeerRows(lanPeers(selected.LatestReport, reports, lanClusterWindow))
+	reply(w, 200, map[string]any{"profile": selected, "reports": history, "events": rows, "accounts": accounts, "trend": trend, "ips": ipList, "linked": linked, "lan": lan})
 }

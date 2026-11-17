@@ -45,6 +45,9 @@ const application = computed(() => sig('application'))
 const network = computed(() => sig('networkSnapshot'))
 const gps = computed(() => sig('location'))
 const cells = computed(() => sig('cell') || [])
+const lan = computed(() => sig('lan'))
+const lanProbe = computed(() => sig('lanProbe'))
+const lanIp = computed(() => lan.value?.addresses?.[0]?.address || '')
 const envFactors = computed(() => (p.value?.factors || []).filter(f => f.source === 'client' || f.source === 'resource'))
 const bizFactors = computed(() => (p.value?.factors || []).filter(f => f.source !== 'client' && f.source !== 'resource'))
 const completeness = computed(() => {
@@ -125,7 +128,7 @@ function display(value) {
 }
 const purpose = v => ({ device_init: '首次登记', device_refresh: '启动更新', register: '注册场景', reward: '营销场景', payment: '支付场景' }[v] || '业务上报')
 const proof = v => (!v ? '未签名' : v.level === 'tee' || v.level === 'strongbox' ? '硬件证明通过' : '签名已验证')
-const attestIssue = { boot_unlocked: 'Bootloader 未锁定', app_mismatch: '包名或签名不符', revoked: '证明证书已吊销', unverified: '未通过' }
+const attestIssue = { boot_unlocked: 'Bootloader 未锁定', app_mismatch: '包名或签名不符', revoked: '证明证书已吊销', unverified: '未通过', keystore_failed: '设备无法生成证明' }
 const attestation = v => (!v ? '未签名' : v.level === 'tee' || v.level === 'strongbox' ? '通过（' + v.level.toUpperCase() + '）' : attestIssue[v.attestationIssue] || '未提交证明')
 const signerCheck = computed(() => {
   const s = r.value?.signals?.expectedSigner
@@ -175,6 +178,7 @@ async function revoke() {
         <div class="meta">
           <span>{{ brand }} · {{ appName(p.appId) }}</span>
           <span class="mono">{{ p.deviceId || '未登记设备 ID' }}</span>
+          <span v-if="lanIp" class="mono">内网 {{ lanIp }}</span>
         </div>
         <div class="meta">
           <span>首次出现 {{ fullTime(p.firstSeen) }}</span>
@@ -351,6 +355,32 @@ async function revoke() {
               <dt>模拟标记</dt><dd>{{ display(gps.mock) }}</dd>
             </dl>
             <p v-else class="muted" style="margin:0">{{ signalReason('location') }}</p>
+          </div>
+        </section>
+      </div>
+      <div class="grid g-2" style="margin-bottom:16px">
+        <section class="card">
+          <div class="card-head"><h2>局域网</h2><span class="tag">{{ signalStatus('lan') }}</span></div>
+          <div class="card-body">
+            <dl v-if="lan" class="kv">
+              <dt>内网地址</dt><dd class="mono">{{ lan.addresses.map(a => a.address + '/' + a.prefix).join('\n') || '未分配' }}</dd>
+              <dt>网关</dt><dd class="mono">{{ display(lan.gateway) }}</dd>
+              <dt>DNS</dt><dd class="mono">{{ lan.dns.join('、') || '未提供' }}</dd>
+              <dt>DHCP 服务器</dt><dd class="mono">{{ display(lan.dhcpServer) }}</dd>
+              <dt>网卡</dt><dd class="mono">{{ lan.interface }} · 系统标记为{{ transport(lan.transport) }}</dd>
+              <dt>同网探测</dt><dd>{{ lanProbe ? lanProbe.targets + ' 台，可达 ' + lanProbe.reachable.length + ' 台，开放 ADB ' + lanProbe.adb.length + ' 台，网关' + (lanProbe.gateway == null ? '未探测' : lanProbe.gateway ? '可达' : '不可达') + '，' + lanProbe.millis + ' ms' : signalStatus('lanProbe') }}</dd>
+            </dl>
+            <p v-else class="muted" style="margin:0">{{ signalReason('lan') }}</p>
+          </div>
+        </section>
+        <section class="card">
+          <div class="card-head"><h2>同局域网设备</h2><span class="sub">24 小时内 {{ data.lan.length }} 台</span></div>
+          <div class="table-wrap">
+            <table v-if="data.lan.length">
+              <thead><tr><th>机型</th><th>应用</th><th>内网 IP</th><th>最近上报</th></tr></thead>
+              <tbody><tr v-for="d in data.lan" :key="d.id" class="click" @click="go('devices', d.id, { app: d.appId })"><td>{{ d.model || '未识别机型' }}</td><td>{{ appName(d.appId) }}</td><td class="mono">{{ d.lanIp || '—' }}</td><td :title="fullTime(d.lastSeen)">{{ relative(d.lastSeen) }}</td></tr></tbody>
+            </table>
+            <div v-else class="empty">没有其他设备与它处于同一局域网</div>
           </div>
         </section>
       </div>

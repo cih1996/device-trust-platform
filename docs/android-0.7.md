@@ -49,6 +49,20 @@
 
 扫描为降低开销直接发起 `socket`/`connect` 系统调用，跳过 bionic 对每次连接的 netd 打标 IPC；回环连接不需要网络标记。
 
+## 0.7.3 修正
+
+登记新密钥时默认带 `setAttestationChallenge` 生成。部分设备的 Keystore 无法生成证明（例如出厂证明密钥损坏，`generateKeyPair` 抛 `ProviderException`），以前会导致登记和后续所有上报失败。现在：
+
+- 挑战 `hardwareRequired = false`：删除失败残留的别名，不带证明重新生成密钥，并在登记包中附带原始错误 `attestationError`。平台记为 `signature_only`、`issue = keystore_failed`，verdict 中 `app.attestation = none`。
+- 挑战 `hardwareRequired = true`：照旧直接抛出，不降级；平台也会拒绝带 `attestationError` 的登记。
+
+## 0.7.4 新增
+
+| 信号 | 说明 |
+|---|---|
+| `lan` | 第一个 Wi-Fi / 以太网网络，或网卡名为 `eth*` / `wlan*` 的网络（箱式、云手机常把 eth0 标成移动网络），VPN 之下的物理网络也能取到：IPv4 地址与前缀、默认网关、IPv4 DNS、DHCP 服务器（API 30+）、网卡名、系统标记的网络类型。只用 `ACCESS_NETWORK_STATE` |
+| `lanProbe` | 挑战带 `lanTargets` 时，`SecureReporter.upload` 在签名前探测这些地址：只接受点分十进制且位于本机网段内的地址（不经 DNS），16 线程，每项 300 ms，总预算 3 秒。`InetAddress.isReachable`（无特权 ICMP，失败时 TCP 7 端口）判断可达，TCP 连接 5555 判断 ADB 无线调试；同时探测网关 |
+
 ## 构建
 
 Linux 可直接构建：`scripts/build-native.sh <NDK 23.1.7779620> <xollvm v0.12.0 Linux LLVM22>`，产物与 Windows 脚本一致。
