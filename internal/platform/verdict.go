@@ -164,7 +164,7 @@ func (s *Server) replyVerdict(w http.ResponseWriter, a App, report Report) {
 }
 
 func (s *Server) verdict(a App, report Report) (Verdict, error) {
-	reports, events, err := s.deviceData()
+	reports, events, err := s.deviceData(nil)
 	if err != nil {
 		return Verdict{}, err
 	}

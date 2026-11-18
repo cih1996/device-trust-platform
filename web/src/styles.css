@@ -148,6 +148,7 @@ label.field { display: grid; gap: 4px; font-size: 13px; color: var(--ink-2); }
 .nav-count { margin-left: auto; font-size: 12px; background: var(--high-weak); color: var(--high-ink); border-radius: 10px; padding: 0 7px; font-weight: 600; }
 .sidebar-foot { margin-top: auto; border-top: 1px solid var(--line); padding-top: 12px; display: grid; gap: 2px; }
 .sidebar-foot .who { font-size: 12px; color: var(--muted); padding: 0 10px 6px; }
+.sidebar-foot .who small { display: block; margin-top: 2px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
 .main { min-width: 0; display: flex; flex-direction: column; }
 .topbar {
@@ -180,6 +181,7 @@ label.field { display: grid; gap: 4px; font-size: 13px; color: var(--ink-2); }
 .g-kpi { grid-template-columns: repeat(6, minmax(0, 1fr)); }
 .g-2-1 { grid-template-columns: minmax(0, 2fr) minmax(0, 1fr); }
 .g-3 { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+.g-3 > .wide { grid-column: span 2; }
 .g-2 { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 .g-4 { grid-template-columns: repeat(4, minmax(0, 1fr)); }
 .stack { display: grid; gap: 16px; }
@@ -325,6 +327,8 @@ dl.kv dd { margin: 0; min-width: 0; overflow-wrap: anywhere; white-space: pre-li
 pre.raw { background: var(--surface-2); padding: 14px; border-radius: 8px; overflow: auto; max-height: 640px; font-size: 12px; margin: 0; }
 .digest { display: block; overflow-wrap: anywhere; }
 .loading { opacity: .6; transition: opacity .2s; }
+.chip { border: 1px solid var(--line-strong); background: var(--surface); border-radius: 999px; padding: 2px 10px; font-size: 12px; color: var(--ink); cursor: pointer; }
+.chip:hover { background: var(--surface-hover); }
 .row-gap { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
 
 @media (max-width: 1280px) {
@@ -332,6 +336,7 @@ pre.raw { background: var(--surface-2); padding: 14px; border-radius: 8px; overf
 }
 @media (max-width: 1080px) {
   .g-2-1, .g-3 { grid-template-columns: 1fr; }
+  .g-3 > .wide { grid-column: auto; }
   .g-4 { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .g-2.stack { grid-template-columns: 1fr; }
 }

@@ -1,13 +1,13 @@
 import { reactive } from 'vue'
 
-// Hash routes: #/overview, #/devices, #/devices/:id, #/graph, #/events, #/apps, #/apps/:id
+// Hash routes: #/overview, #/insights, #/devices, #/devices/:id, #/graph, #/events, #/apps, #/apps/:id
 // The selected app travels in the query (?app=) so links are shareable.
 export const route = reactive({ name: 'overview', id: '', query: {} })
 
 function parse() {
   const [path, search = ''] = location.hash.replace(/^#\/?/, '').split('?')
   const parts = path.split('/').filter(Boolean).map(decodeURIComponent)
-  route.name = ['overview', 'devices', 'graph', 'events', 'apps'].includes(parts[0]) ? parts[0] : 'overview'
+  route.name = ['overview', 'insights', 'devices', 'graph', 'team', 'platform', 'events', 'apps'].includes(parts[0]) ? parts[0] : 'overview'
   route.id = parts[1] || ''
   route.query = Object.fromEntries(new URLSearchParams(search))
 }

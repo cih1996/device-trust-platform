@@ -292,7 +292,7 @@ func (s *Server) graph(w http.ResponseWriter, r *http.Request) {
 		}
 		days = n
 	}
-	reports, events, err := s.deviceData()
+	reports, events, err := s.deviceData(accessFrom(r))
 	if err != nil {
 		fail(w, 500, err)
 		return

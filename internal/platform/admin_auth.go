@@ -20,10 +20,20 @@ type AdminUser struct {
 	Hash       string    `json:"hash"`
 	Iterations int       `json:"iterations"`
 	UpdatedAt  time.Time `json:"updatedAt"`
+	// Tenancy. The startup account has no team and is the platform administrator.
+	TeamID      string     `json:"teamId,omitempty"`
+	Role        string     `json:"role,omitempty"`
+	Platform    bool       `json:"platform,omitempty"`
+	Disabled    bool       `json:"disabled,omitempty"`
+	CreatedAt   time.Time  `json:"createdAt"`
+	LastLoginAt *time.Time `json:"lastLoginAt,omitempty"`
+	// Sessions issued before this instant are void (password reset, disable).
+	SessionsAfter time.Time `json:"sessionsAfter,omitempty"`
 }
 
 type AdminSession struct {
 	Username  string    `json:"username"`
+	CreatedAt time.Time `json:"createdAt"`
 	ExpiresAt time.Time `json:"expiresAt"`
 }
 
@@ -87,20 +97,10 @@ func EnsureAdminUser(store *Store, username, bootstrapPassword string) error {
 	return store.put("admin-users", username, user)
 }
 
-func (s *Server) adminUser() (AdminUser, error) {
-	var user AdminUser
-	if s.AdminUser == "" {
-		return user, errors.New("admin account authentication is not configured")
-	}
-	if err := s.Store.get("admin-users", s.AdminUser, &user); err != nil {
-		return user, err
-	}
-	return user, nil
-}
-
 func (s *Server) createAdminSession(username string) (string, error) {
 	value := token()
-	session := AdminSession{Username: username, ExpiresAt: time.Now().UTC().Add(12 * time.Hour)}
+	now := time.Now().UTC()
+	session := AdminSession{Username: username, CreatedAt: now, ExpiresAt: now.Add(12 * time.Hour)}
 	return value, s.Store.create("admin-sessions", value, session)
 }
 
@@ -113,13 +113,33 @@ func (s *Server) adminLogin(w http.ResponseWriter, r *http.Request) {
 		fail(w, 400, err)
 		return
 	}
-	user, err := s.adminUser()
-	if err != nil {
+	if s.AdminUser == "" {
+		fail(w, 500, errors.New("admin account authentication is not configured"))
+		return
+	}
+	name := strings.ToLower(strings.TrimSpace(input.Username))
+	if !s.limits.allow("login|"+remoteIP(r), 30, 15*time.Minute) || !s.limits.allow("login|"+name, 10, 15*time.Minute) {
+		fail(w, 429, errors.New("登录尝试过于频繁，请 15 分钟后再试"))
+		return
+	}
+	var user AdminUser
+	err := s.Store.get("admin-users", name, &user)
+	if err != nil && !errors.Is(err, os.ErrNotExist) {
 		fail(w, 500, err)
 		return
 	}
-	if input.Username != user.Username || !adminPasswordMatches(user, input.Password) {
+	if err != nil || !adminPasswordMatches(user, input.Password) {
 		fail(w, 401, errors.New("账号或密码错误"))
+		return
+	}
+	if _, err = s.accessFor(user); err != nil {
+		fail(w, 403, err)
+		return
+	}
+	now := time.Now().UTC()
+	user.LastLoginAt = &now
+	if err = s.Store.put("admin-users", user.Username, user); err != nil {
+		fail(w, 500, err)
 		return
 	}
 	session, err := s.createAdminSession(user.Username)
@@ -127,18 +147,29 @@ func (s *Server) adminLogin(w http.ResponseWriter, r *http.Request) {
 		fail(w, 500, err)
 		return
 	}
-	reply(w, 200, map[string]any{"token": session, "username": user.Username, "expiresAt": time.Now().UTC().Add(12 * time.Hour)})
+	reply(w, 200, map[string]any{"token": session, "username": user.Username, "expiresAt": now.Add(12 * time.Hour)})
 }
 
-func (s *Server) authorizeAdmin(r *http.Request) bool {
+// authorizeAdmin returns the caller's access, or nil when not signed in.
+func (s *Server) authorizeAdmin(r *http.Request) (*access, error) {
 	if s.AdminUser == "" {
-		return s.AdminToken != "" && same(bearer(r), s.AdminToken)
+		if s.AdminToken != "" && same(bearer(r), s.AdminToken) {
+			return &access{platform: true, apps: map[string]bool{}}, nil
+		}
+		return nil, nil
 	}
 	var session AdminSession
-	if err := s.Store.get("admin-sessions", bearer(r), &session); err != nil {
-		return false
+	if err := s.Store.get("admin-sessions", bearer(r), &session); err != nil || !time.Now().UTC().Before(session.ExpiresAt) {
+		return nil, nil
 	}
-	return session.Username == s.AdminUser && time.Now().UTC().Before(session.ExpiresAt)
+	var user AdminUser
+	if err := s.Store.get("admin-users", session.Username, &user); err != nil {
+		return nil, nil
+	}
+	if session.CreatedAt.Before(user.SessionsAfter) {
+		return nil, nil
+	}
+	return s.accessFor(user)
 }
 
 func (s *Server) changeAdminPassword(w http.ResponseWriter, r *http.Request) {
@@ -150,8 +181,8 @@ func (s *Server) changeAdminPassword(w http.ResponseWriter, r *http.Request) {
 		fail(w, 400, err)
 		return
 	}
-	user, err := s.adminUser()
-	if err != nil {
+	var user AdminUser
+	if err := s.Store.get("admin-users", accessFrom(r).user.Username, &user); err != nil {
 		fail(w, 500, err)
 		return
 	}
@@ -164,17 +195,23 @@ func (s *Server) changeAdminPassword(w http.ResponseWriter, r *http.Request) {
 		fail(w, 400, err)
 		return
 	}
-	if err = s.Store.put("admin-users", user.Username, updated); err != nil {
+	user.Salt, user.Hash, user.Iterations, user.UpdatedAt = updated.Salt, updated.Hash, updated.Iterations, updated.UpdatedAt
+	if err = s.Store.put("admin-users", user.Username, user); err != nil {
 		fail(w, 500, err)
 		return
 	}
-	reply(w, 200, map[string]string{"username": updated.Username})
+	reply(w, 200, map[string]string{"username": user.Username})
 }
 
-func (s *Server) adminAuth(w http.ResponseWriter, r *http.Request) bool {
-	if s.authorizeAdmin(r) {
-		return true
+func (s *Server) adminAuth(w http.ResponseWriter, r *http.Request) (*access, bool) {
+	a, err := s.authorizeAdmin(r)
+	if err != nil {
+		fail(w, 403, err)
+		return nil, false
 	}
-	fail(w, 401, errors.New("请重新登录"))
-	return false
+	if a == nil {
+		fail(w, 401, errors.New("请重新登录"))
+		return nil, false
+	}
+	return a, true
 }

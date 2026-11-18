@@ -242,7 +242,7 @@ func (s *Server) analytics(w http.ResponseWriter, r *http.Request) {
 		fail(w, 400, err)
 		return
 	}
-	allReports, allEvents, err := s.deviceData()
+	allReports, allEvents, err := s.deviceData(accessFrom(r))
 	if err != nil {
 		fail(w, 500, err)
 		return
@@ -498,7 +498,7 @@ func (s *Server) listEvents(w http.ResponseWriter, r *http.Request) {
 	rows := []eventRow{}
 	counts := map[string]int{"low": 0, "medium": 0, "high": 0, "pending": 0}
 	for _, e := range events {
-		if (appID != "" && e.AppID != appID) || e.ReceivedAt.Before(from) {
+		if (appID != "" && e.AppID != appID) || e.ReceivedAt.Before(from) || !accessFrom(r).can(e.AppID) {
 			continue
 		}
 		row := control.row(e)

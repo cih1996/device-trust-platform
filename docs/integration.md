@@ -37,6 +37,7 @@ App 启动（用户同意后）
 
 ## 3. 准备工作
 
+0. 在工作台登录页“注册新团队”（平台关闭注册时，请平台管理员或团队管理员发邀请链接）。团队之间数据完全隔离：只能看到本团队的应用、设备、事件和关系图谱。团队管理员可在“团队成员”邀请同事，角色分为管理员（应用、密钥、策略、成员）、运营（查看并复核、处置事件）、只读。
 1. 在工作台“应用管理”创建应用，包名填写 Android `applicationId`，保存 appId 和 appKey。
 2. 在“接入保护”填写 APK 签名证书的 SHA-256。可以在 App 中读取，也可以用 `apksigner verify --print-certs app.apk` 查看。填写后平台会比对每次上报的签名，并用硬件证明核对包名和签名（第 5 节）。
 3. 你的业务后端实现 `POST /device/prepare`（第 4.1 节）。
@@ -195,6 +196,7 @@ POST /v1/challenges
 - 关联需要 SDK 0.7 及以上版本。SDK 会采集 ANDROID_ID，请在隐私政策中写明“设备标识用于安全风控”。
 - 关联依据是客户端观测，可能被改机工具篡改。它是风险线索，不能作为身份证明。
 - verdict 的 `linked` 只给出汇总，不会把其他 App 的 deviceId 透露给当前 App 的后端。
+- 工作台只列出本团队应用中的关联设备。同一台手机若在**其他团队**的应用里最近 30 天被评为高风险，本次上报记 `linked_risk_elsewhere`（20 分），设备详情显示“其他接入方的风险结论”（接入方数量、高风险安装数、最高分），不显示对方的应用、账号或事件。
 
 ## 6.1 局域网聚集（工作室识别）
 
@@ -332,6 +334,7 @@ const verdict = await response.json()
 | cell_operator_mismatch / cell_sim_country_mismatch | 注册基站与系统报告的运营商 / SIM 国家不符（运营商被篡改） | 25 / 20 |
 | lan_device_cluster | 24 小时内同一局域网 ≥ 5 台手机 | 20 |
 | lan_adb_peers | 同局域网设备开放 ADB 无线调试端口 5555 | 30 |
+| linked_risk_elsewhere | 同一台手机在其他团队的应用中最近 30 天被评为高风险（该加分本身不会再传给其他团队） | 20 |
 | device_identity_clone / device_identifier_changed / frequent_reinstall | 设备标识被复制到硬件不同的设备 / 同一设备的标识被修改 / 24 小时内重装 ≥ 3 次 | 30 / 20 / 20 |
 | location_jump | 同一手机两次定位间的速度超过 900 km/h（且距离超过 100 km） | 25 |
 | mock_location / cell_gps_mismatch / ip_gps_region_mismatch | 系统标记模拟定位 / 定位与注册基站相距超过 max(3 倍覆盖半径, 20 km) / 网络与定位区域不一致 | 20 / 25 / 10 |

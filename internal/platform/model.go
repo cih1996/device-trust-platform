@@ -4,6 +4,7 @@ import "time"
 
 type App struct {
 	ID        string       `json:"id"`
+	TeamID    string       `json:"teamId,omitempty"`
 	Name      string       `json:"name"`
 	Package   string       `json:"package"`
 	KeyHash   string       `json:"keyHash,omitempty"`

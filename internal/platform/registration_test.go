@@ -91,7 +91,7 @@ func TestReinstallKeepsProfile(t *testing.T) {
 	if one["deviceId"] != two["deviceId"] || one["keyId"] == two["keyId"] {
 		t.Fatal(one, two)
 	}
-	reports, events, _ := server.deviceData()
+	reports, events, _ := server.deviceData(nil)
 	if p := profiles(reports, events, "a"); len(p) != 1 || p[0].ReportCount != 2 {
 		t.Fatalf("%d profiles", len(p))
 	}

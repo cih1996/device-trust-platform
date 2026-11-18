@@ -2,7 +2,7 @@
 import { ref } from 'vue'
 import { api } from '../api.js'
 import { go } from '../router.js'
-import { apps, loadApps, report } from '../store.js'
+import { apps, loadApps, report, can } from '../store.js'
 import { fullTime } from '../format.js'
 
 const creating = ref(false)
@@ -35,7 +35,7 @@ function copy(text) {
   <div>
     <div class="page-head">
       <div><h1>应用管理</h1><p>每个接入的 App 拥有独立的策略、接入保护和应用密钥</p></div>
-      <button class="primary" @click="creating = true">＋ 新建应用</button>
+      <button v-if="can('admin')" class="primary" @click="creating = true">＋ 新建应用</button>
     </div>
 
     <div v-if="created" class="card" style="padding:16px;margin-bottom:16px;border-color:var(--accent)">

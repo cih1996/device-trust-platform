@@ -2,7 +2,7 @@
 import { ref, computed, onMounted, watch } from 'vue'
 import { token, setToken, username } from './api.js'
 import { route, go, href, setQuery } from './router.js'
-import { apps, appId, error, loadApps, openEventId, report, changed, closeEvent, clearError } from './store.js'
+import { apps, appId, error, loadApps, loadMe, me, can, roleNames, openEventId, report, changed, closeEvent, clearError } from './store.js'
 import Icon from './components/Icon.vue'
 import Login from './views/Login.vue'
 import Overview from './views/Overview.vue'
@@ -10,6 +10,9 @@ import Devices from './views/Devices.vue'
 import DeviceDetail from './views/DeviceDetail.vue'
 import Events from './views/Events.vue'
 import Graph from './views/Graph.vue'
+import Insights from './views/Insights.vue'
+import Team from './views/Team.vue'
+import Platform from './views/Platform.vue'
 import Apps from './views/Apps.vue'
 import AppDetail from './views/AppDetail.vue'
 import EventDrawer from './views/EventDrawer.vue'
@@ -18,24 +21,30 @@ import AccountDialog from './views/AccountDialog.vue'
 const ready = ref(false)
 const accountOpen = ref(false)
 const signedIn = computed(() => !!token.value && ready.value)
-const nav = [
+const baseNav = [
   { name: 'overview', label: '风险总览', icon: 'overview' },
+  { name: 'insights', label: '大盘分析', icon: 'insights' },
   { name: 'devices', label: '设备', icon: 'devices' },
   { name: 'graph', label: '关系图谱', icon: 'graph' },
   { name: 'events', label: '风险事件', icon: 'events' },
   { name: 'apps', label: '应用管理', icon: 'apps' },
 ]
+const nav = computed(() => [
+  ...baseNav,
+  ...(me.value?.team?.id && can('admin') ? [{ name: 'team', label: '团队成员', icon: 'team' }] : []),
+  ...(can('platform') ? [{ name: 'platform', label: '平台管理', icon: 'platform' }] : []),
+])
 const view = computed(() => {
   if (route.name === 'devices') return route.id ? DeviceDetail : Devices
   if (route.name === 'apps') return route.id ? AppDetail : Apps
-  return { overview: Overview, events: Events, graph: Graph }[route.name] || Overview
+  return { overview: Overview, events: Events, graph: Graph, insights: Insights, team: Team, platform: Platform }[route.name] || Overview
 })
-const scoped = computed(() => route.name !== 'apps')
+const scoped = computed(() => !['apps', 'team', 'platform'].includes(route.name))
 
 async function start() {
   if (!token.value) return
   try {
-    await loadApps()
+    await Promise.all([loadApps(), loadMe()])
     ready.value = true
     if (appId.value && !apps.value.some(a => a.id === appId.value)) setQuery({ app: '' })
   } catch (e) {
@@ -49,6 +58,7 @@ function logout() {
   setToken('')
   ready.value = false
   apps.value = []
+  me.value = null
 }
 function pickApp(event) {
   setQuery({ app: event.target.value })
@@ -68,7 +78,7 @@ onMounted(start)
         <Icon :name="item.icon" /><span class="label">{{ item.label }}</span>
       </a>
       <div class="sidebar-foot">
-        <div class="who">{{ username }}</div>
+        <div class="who">{{ me?.username || username }}<small v-if="me">{{ me.team?.name ? me.team.name + ' · ' : '' }}{{ roleNames[me.role] }}</small></div>
         <a class="nav-item" href="https://devicetrust.lingzidev.com/docs/" target="_blank" rel="noopener"><Icon name="docs" /><span class="label">接入文档</span></a>
         <a class="nav-item" href="#" @click.prevent="accountOpen = true"><Icon name="account" /><span class="label">账号设置</span></a>
         <a class="nav-item" href="#" @click.prevent="logout"><Icon name="logout" /><span class="label">退出登录</span></a>
@@ -83,7 +93,7 @@ onMounted(start)
             <option v-for="a in apps" :key="a.id" :value="a.id">{{ a.name }}</option>
           </select>
         </label>
-        <strong v-else>应用管理</strong>
+        <strong v-else>{{ { apps: '应用管理', team: '团队成员', platform: '平台管理' }[route.name] }}</strong>
         <span class="spacer"></span>
         <button class="ghost" @click="changed(); loadApps().catch(report)" title="刷新数据"><Icon name="refresh" />刷新</button>
       </header>

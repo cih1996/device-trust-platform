@@ -10,13 +10,29 @@ import (
 	"time"
 )
 
-func (s *Server) deviceData() (reports []Report, events []Event, err error) {
+// deviceData loads the reports and events the caller may see; nil sees all.
+func (s *Server) deviceData(a *access) (reports []Report, events []Event, err error) {
 	reports, err = records[Report](s.Store, "reports")
 	if err != nil {
 		return
 	}
 	events, err = records[Event](s.Store, "events")
-	return
+	if err != nil || a == nil || a.platform {
+		return
+	}
+	visibleReports := reports[:0]
+	for _, r := range reports {
+		if a.can(r.AppID) {
+			visibleReports = append(visibleReports, r)
+		}
+	}
+	visibleEvents := events[:0]
+	for _, e := range events {
+		if a.can(e.AppID) {
+			visibleEvents = append(visibleEvents, e)
+		}
+	}
+	return visibleReports, visibleEvents, nil
 }
 func (s *Server) keyStatus(p *Profile) error {
 	if p.LatestReport.Proof == nil {
@@ -46,7 +62,7 @@ func (s *Server) keyStatus(p *Profile) error {
 	return err
 }
 func (s *Server) listDevices(w http.ResponseWriter, r *http.Request) {
-	reports, events, err := s.deviceData()
+	reports, events, err := s.deviceData(accessFrom(r))
 	if err != nil {
 		fail(w, 500, err)
 		return
@@ -136,7 +152,7 @@ type deviceAccount struct {
 }
 
 func (s *Server) deviceDetails(w http.ResponseWriter, r *http.Request, id string) {
-	reports, events, err := s.deviceData()
+	reports, events, err := s.deviceData(accessFrom(r))
 	if err != nil {
 		fail(w, 500, err)
 		return
@@ -226,7 +242,9 @@ func (s *Server) deviceDetails(w http.ResponseWriter, r *http.Request, id string
 		}
 	}
 	for _, e := range related {
-		if i := int(e.ReceivedAt.Sub(trend[0].Start) / (24 * time.Hour)); !e.ReceivedAt.Before(trend[0].Start) && i < len(trend) {
+		// Local days are not all 24 hours long (DST), so find the day by its bounds.
+		i := sort.Search(len(trend), func(i int) bool { return trend[i].Start.After(e.ReceivedAt) }) - 1
+		if i >= 0 && e.ReceivedAt.Before(end) {
 			t := trend[i]
 			t.Events++
 			t.total += e.Score
@@ -289,5 +307,19 @@ func (s *Server) deviceDetails(w http.ResponseWriter, r *http.Request, id string
 			return
 		}
 	}
-	reply(w, 200, map[string]any{"profile": selected, "reports": history, "events": rows, "accounts": accounts, "trend": trend, "ips": ipList, "linked": linked, "lan": lan, "keys": keys})
+	var shared SharedRisk
+	if selected.LinkID != "" {
+		teams, err := s.teamOf()
+		if err != nil {
+			fail(w, 500, err)
+			return
+		}
+		allReports, allEvents, err := s.deviceData(nil)
+		if err != nil {
+			fail(w, 500, err)
+			return
+		}
+		shared = sharedRisk(selected.AppID, selected.LinkID, teams, allReports, allEvents)
+	}
+	reply(w, 200, map[string]any{"shared": shared, "profile": selected, "reports": history, "events": rows, "accounts": accounts, "trend": trend, "ips": ipList, "linked": linked, "lan": lan, "keys": keys})
 }

@@ -264,6 +264,10 @@ func (s *Server) revokeKey(w http.ResponseWriter, r *http.Request) {
 		fail(w, 400, err)
 		return
 	}
+	if !accessFrom(r).can(input.AppID) {
+		fail(w, 404, errors.New("application not found"))
+		return
+	}
 	if _, ok := s.app(input.AppID, w); !ok {
 		return
 	}
@@ -408,6 +412,7 @@ func (s *Server) secure(w http.ResponseWriter, r *http.Request) {
 			for _, issue := range identityIssues {
 				report.Resources.Checks = append(report.Resources.Checks, ResourceCheck{Code: issue.Code, State: "conflict", Dimension: "device", Detail: issue.Detail, Source: "server", Points: issue.Points})
 			}
+			err = s.sharedRiskCheck(&report)
 		}
 		if err != nil {
 			fail(w, 500, err)

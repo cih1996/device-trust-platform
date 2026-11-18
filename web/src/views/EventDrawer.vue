@@ -2,7 +2,7 @@
 import { ref, computed, watch, onMounted, onBeforeUnmount } from 'vue'
 import { api } from '../api.js'
 import { href } from '../router.js'
-import { appId, appName, changed } from '../store.js'
+import { appId, appName, changed, can } from '../store.js'
 import { fullTime, levelNames } from '../format.js'
 import { sceneNames, actionNames, reviewNames, statusNames, reasonName, sourceNames, fieldNames, outcomeNames } from '../risk-display.js'
 import ScoreRing from '../components/ScoreRing.vue'
@@ -107,11 +107,11 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKey))
         <div>
           <div class="section-title">处理 <small v-if="e.feedback">已标记：{{ reviewNames[e.feedback.label] }}</small></div>
           <textarea v-model="note" rows="2" placeholder="处理备注（可选）" aria-label="处理备注"></textarea>
-          <div v-if="canResolve" class="row-gap" style="margin-top:8px">
+          <div v-if="canResolve && can('analyst')" class="row-gap" style="margin-top:8px">
             <button class="primary" :disabled="busy" @click="resolve('approved')">批准放行</button>
             <button class="danger" :disabled="busy" @click="resolve('rejected')">拒绝</button>
           </div>
-          <div class="row-gap" style="margin-top:8px">
+          <div v-if="can('analyst')" class="row-gap" style="margin-top:8px">
             <button :disabled="busy" @click="review('fraud')">标记为异常</button>
             <button :disabled="busy" @click="review('legitimate')">标记为正常</button>
             <button class="ghost" :disabled="busy" @click="review('unknown')">待确认</button>

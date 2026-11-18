@@ -21,6 +21,7 @@ type Server struct {
 	AdminUser  string
 	Trust      *AttestationVerifier
 	Resources  *ResourceEngine
+	limits     rateLimiter
 }
 
 func (s *Server) Handler(web string) http.Handler {
@@ -82,16 +83,63 @@ func (s *Server) app(id string, w http.ResponseWriter) (App, bool) {
 		fail(w, 500, err)
 		return a, false
 	}
+	// A disabled team's apps stop serving the SDK and the business server.
+	if a.TeamID != "" {
+		var team Team
+		if err = s.Store.get("teams", a.TeamID, &team); err != nil {
+			fail(w, 500, err)
+			return a, false
+		}
+		if team.Disabled {
+			fail(w, 403, errors.New("应用所属团队已停用"))
+			return a, false
+		}
+	}
 	return a, true
 }
 func (s *Server) admin(w http.ResponseWriter, r *http.Request) {
 	path := strings.TrimPrefix(r.URL.Path, "/api/")
-	if path == "auth/login" && r.Method == "POST" {
+	switch {
+	case path == "auth/login" && r.Method == "POST":
 		s.adminLogin(w, r)
 		return
-	}
-	if !s.adminAuth(w, r) {
+	case path == "auth/options" && r.Method == "GET":
+		s.signupOptions(w)
 		return
+	case path == "auth/register" && r.Method == "POST":
+		s.register(w, r)
+		return
+	case path == "auth/join" && r.Method == "POST":
+		s.join(w, r)
+		return
+	}
+	a, ok := s.adminAuth(w, r)
+	if !ok {
+		return
+	}
+	r = withAccess(r, a)
+	if need := requiredRole(r.Method, path); need == "platform" && !a.platform || need != "platform" && !a.atLeast(need) {
+		fail(w, 403, errors.New("当前账号没有此操作的权限"))
+		return
+	}
+	// Every app named by the request must belong to the caller's team.
+	if id := r.URL.Query().Get("appId"); id != "" && !a.can(id) {
+		fail(w, 404, errors.New("application not found"))
+		return
+	}
+	if strings.HasPrefix(path, "apps/") {
+		if id, _, _ := strings.Cut(strings.TrimPrefix(path, "apps/"), "/"); !a.can(id) {
+			fail(w, 404, errors.New("application not found"))
+			return
+		}
+	}
+	if strings.HasPrefix(path, "events/") {
+		id, _, _ := strings.Cut(strings.TrimPrefix(path, "events/"), "/")
+		var e Event
+		if err := s.Store.get("events", id, &e); err == nil && !a.can(e.AppID) {
+			fail(w, 404, errors.New("event not found"))
+			return
+		}
 	}
 	if r.URL.Path == "/api/resources" && r.Method == "GET" {
 		if s.Resources == nil {
@@ -109,12 +157,25 @@ func (s *Server) admin(w http.ResponseWriter, r *http.Request) {
 	switch {
 	case path == "auth/password" && r.Method == "PUT":
 		s.changeAdminPassword(w, r)
+	case path == "auth/me" && r.Method == "GET":
+		s.me(w, r)
+	case strings.HasPrefix(path, "team"):
+		s.teamAPI(w, r, path)
+	case strings.HasPrefix(path, "platform/"):
+		s.platformAPI(w, r, path)
 	case path == "apps" && r.Method == "GET":
 		apps, err := records[App](s.Store, "apps")
 		if err != nil {
 			fail(w, 500, err)
 			return
 		}
+		visible := apps[:0]
+		for _, app := range apps {
+			if a.can(app.ID) {
+				visible = append(visible, app)
+			}
+		}
+		apps = visible
 		for i := range apps {
 			apps[i].KeyHash = ""
 			p, err := s.policy(apps[i].ID)
@@ -144,18 +205,29 @@ func (s *Server) admin(w http.ResponseWriter, r *http.Request) {
 			fail(w, 400, errors.New("请输入应用名称和包名"))
 			return
 		}
+		if !a.platform {
+			settings, err := s.settings()
+			if err != nil {
+				fail(w, 500, err)
+				return
+			}
+			if len(a.apps) >= settings.MaxAppsPerTeam {
+				fail(w, 403, fmt.Errorf("每个团队最多创建 %d 个应用", settings.MaxAppsPerTeam))
+				return
+			}
+		}
 		key := token()
-		a := App{ID: token(), Name: input.Name, Package: input.Package, KeyHash: digest(key), CreatedAt: time.Now().UTC()}
-		if err := s.Store.put("security", a.ID, AppSecurity{RequireSignedReports: true, RequireRequestBinding: true, MaxEnrollmentHours: 24, SigningDigests: []string{}}); err != nil {
+		app := App{ID: token(), TeamID: a.team.ID, Name: input.Name, Package: input.Package, KeyHash: digest(key), CreatedAt: time.Now().UTC()}
+		if err := s.Store.put("security", app.ID, AppSecurity{RequireSignedReports: true, RequireRequestBinding: true, MaxEnrollmentHours: 24, SigningDigests: []string{}}); err != nil {
 			fail(w, 500, err)
 			return
 		}
-		if err := s.Store.put("apps", a.ID, a); err != nil {
+		if err := s.Store.put("apps", app.ID, app); err != nil {
 			fail(w, 500, err)
 			return
 		}
-		a.KeyHash = ""
-		reply(w, 201, map[string]any{"app": a, "key": key})
+		app.KeyHash = ""
+		reply(w, 201, map[string]any{"app": app, "key": key})
 	case strings.HasPrefix(path, "apps/") && strings.HasSuffix(path, "/rotate-key") && r.Method == "POST":
 		id := strings.TrimSuffix(strings.TrimPrefix(path, "apps/"), "/rotate-key")
 		a, ok := s.app(id, w)
@@ -169,7 +241,7 @@ func (s *Server) admin(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		reply(w, 200, map[string]string{"key": key})
-	case path == "overview" && r.Method == "GET":
+	case path == "overview" && r.Method == "GET" && a.platform:
 		s.overview(w, r)
 	case path == "analytics" && r.Method == "GET":
 		s.analytics(w, r)
@@ -177,6 +249,8 @@ func (s *Server) admin(w http.ResponseWriter, r *http.Request) {
 		s.listEvents(w, r)
 	case strings.HasPrefix(path, "events/") && !strings.Contains(strings.TrimPrefix(path, "events/"), "/") && r.Method == "GET":
 		s.eventDetails(w, r, strings.TrimPrefix(path, "events/"))
+	case path == "insights" && r.Method == "GET":
+		s.insights(w, r)
 	case path == "graph" && r.Method == "GET":
 		s.graph(w, r)
 	case path == "devices" && r.Method == "GET":

@@ -23,6 +23,15 @@ export async function loadApps() {
   apps.value = await api('apps')
 }
 
+// The signed-in account: role is platform | admin | analyst | viewer.
+export const me = ref(null)
+export async function loadMe() {
+  me.value = await api('auth/me')
+}
+const rank = { viewer: 1, analyst: 2, admin: 3, platform: 4 }
+export const can = role => rank[me.value?.role] >= rank[role]
+export const roleNames = { platform: '平台管理员', admin: '管理员', analyst: '运营', viewer: '只读' }
+
 export function report(e) {
   error.value = e?.message || String(e)
 }

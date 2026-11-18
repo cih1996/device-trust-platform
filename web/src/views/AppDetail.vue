@@ -2,7 +2,7 @@
 import { ref, computed, watch } from 'vue'
 import { api } from '../api.js'
 import { route, href, go } from '../router.js'
-import { apps, loadApps } from '../store.js'
+import { apps, loadApps, can } from '../store.js'
 import { fullTime } from '../format.js'
 import Icon from '../components/Icon.vue'
 
@@ -101,7 +101,7 @@ function rotate() {
               <label v-for="[key, label, window] in rules" :key="key" class="field"><span>{{ label }} <small>· {{ window }}</small></span><input type="number" min="1" required v-model.number="policy[key]"></label>
             </div>
           </div>
-          <div class="row-gap"><button class="primary" :disabled="saving === 'policy'">保存策略</button><span v-if="saved === 'policy'" class="muted">已保存</span></div>
+          <div class="row-gap"><button v-if="can('admin')" class="primary" :disabled="saving === 'policy'">保存策略</button><span v-if="saved === 'policy'" class="muted">已保存</span></div>
         </div>
       </form>
 
@@ -117,7 +117,7 @@ function rotate() {
             <label class="field">应用证书 SHA-256 指纹<textarea v-model="signers" rows="3" placeholder="每行一个；留空表示不校验" class="mono"></textarea></label>
             <label class="field">硬件证明有效期（小时）<input type="number" v-model.number="security.maxEnrollmentHours" min="1" max="168" required></label>
           </div>
-          <div class="row-gap"><button class="primary" :disabled="saving === 'security'">保存接入保护</button><span v-if="saved === 'security'" class="muted">已保存</span></div>
+          <div class="row-gap"><button v-if="can('admin')" class="primary" :disabled="saving === 'security'">保存接入保护</button><span v-if="saved === 'security'" class="muted">已保存</span></div>
         </div>
       </form>
 
@@ -126,7 +126,7 @@ function rotate() {
         <div class="card-body stack">
           <p class="muted" style="margin:0">业务服务端调用事件、结果和处置接口时使用。重置后原密钥立即失效。</p>
           <div v-if="newKey"><div class="section-title">新密钥（只显示一次）</div><code class="secret">{{ newKey }}</code></div>
-          <div><button class="danger" :disabled="saving === 'key'" @click="rotate">重置密钥</button></div>
+          <div><button v-if="can('admin')" class="danger" :disabled="saving === 'key'" @click="rotate">重置密钥</button></div>
         </div>
       </section>
     </div>

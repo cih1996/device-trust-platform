@@ -2,8 +2,8 @@
 import { ref, computed, watch } from 'vue'
 import { api } from '../api.js'
 import { route, setQuery, href, go } from '../router.js'
-import { appId, appName, revision, report, openEvent, changed } from '../store.js'
-import { fullTime, dateTime, relative, region, gib, levelNames } from '../format.js'
+import { appId, appName, revision, report, openEvent, changed, can } from '../store.js'
+import { fullTime, dateTime, relative, region, gib, levelNames, levelOf } from '../format.js'
 import { reasonName, sourceNames, sceneNames, statusNames } from '../risk-display.js'
 import ScoreRing from '../components/ScoreRing.vue'
 import RiskScore from '../components/RiskScore.vue'
@@ -194,7 +194,7 @@ async function revoke() {
           <small>环境评分 {{ p.envScore }} · 业务评分 {{ p.businessScore }}</small>
           <span class="row-gap" style="margin-top:4px">
             <button class="small" @click="exportRecord"><Icon name="download" />导出</button>
-            <button v-if="r.proof" class="small danger" :disabled="busy || p.keyStatus === 'revoked'" @click="revoke">停用密钥</button>
+            <button v-if="r.proof && can('admin')" class="small danger" :disabled="busy || p.keyStatus === 'revoked'" @click="revoke">停用密钥</button>
           </span>
         </div>
       </div>
@@ -408,6 +408,18 @@ async function revoke() {
     </template>
 
     <template v-if="tab === 'history'">
+      <section class="card" style="margin-bottom:16px">
+        <div class="card-head"><div><h2>其他接入方的风险结论</h2><span class="sub">只共享结论，看不到对方的应用、账号和事件</span></div></div>
+        <div class="card-body">
+          <p v-if="!data.shared.devices" class="muted" style="margin:0">{{ p.linkId ? '最近 30 天没有其他接入方见过这台手机' : '这台设备没有手机关联标识，无法比对' }}</p>
+          <dl v-else class="kv">
+            <dt>见过这台手机的接入方</dt><dd>{{ data.shared.teams }} 个（{{ data.shared.devices }} 个安装）</dd>
+            <dt>评为高风险</dt><dd><span :class="['tag', { bad: data.shared.highRisk }]">{{ data.shared.highRisk }} 个安装</span></dd>
+            <dt>最高风险分</dt><dd><LevelTag :level="levelOf(data.shared.maxScore)" /> <span class="num">{{ data.shared.maxScore }}</span></dd>
+            <dt>最近出现</dt><dd :title="fullTime(data.shared.lastSeen)">{{ relative(data.shared.lastSeen) }}</dd>
+          </dl>
+        </div>
+      </section>
       <section class="card" style="margin-bottom:16px">
         <div class="card-head"><h2>同一手机的其他应用</h2><span class="sub">{{ data.linked.length }} 个</span></div>
         <div class="table-wrap">
