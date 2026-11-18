@@ -1,6 +1,7 @@
 <script setup>
 import { ref, computed, onMounted } from 'vue'
 import { api, setToken, setUser, username } from '../api.js'
+import { go } from '../router.js'
 const emit = defineEmits(['done'])
 
 // An invite link opens #/join?code=…; otherwise sign in or create a team.
@@ -46,7 +47,8 @@ async function submit() {
     setToken(data.token)
     setUser(data.username || name.value)
     password.value = confirm.value = ''
-    if (mode.value !== 'login') history.replaceState(null, '', mode.value === 'register' ? '#/apps' : '#/overview')
+    // A new account lands on a page it may open; a new team starts at app creation.
+    if (mode.value !== 'login') go(mode.value === 'register' ? 'apps' : 'overview')
     emit('done')
   } catch (e) {
     message.value = e.message

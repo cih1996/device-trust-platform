@@ -35,6 +35,9 @@ const nav = computed(() => [
   ...(can('platform') ? [{ name: 'platform', label: '平台管理', icon: 'platform' }] : []),
 ])
 const view = computed(() => {
+  // Pages this account may not open (a link or the page left by another account) fall back to the overview.
+  if (route.name === 'team' && !(me.value?.team?.id && can('admin'))) return Overview
+  if (route.name === 'platform' && !can('platform')) return Overview
   if (route.name === 'devices') return route.id ? DeviceDetail : Devices
   if (route.name === 'apps') return route.id ? AppDetail : Apps
   return { overview: Overview, events: Events, graph: Graph, insights: Insights, team: Team, platform: Platform }[route.name] || Overview
@@ -99,7 +102,19 @@ onMounted(start)
       </header>
       <div class="content">
         <div v-if="error" class="banner" role="alert"><span>{{ error }}</span><button class="ghost small" @click="clearError">关闭</button></div>
-        <component :is="view" :key="route.name + (route.id ? '/' + route.id : '')" />
+        <section v-if="!apps.length && scoped" class="card onboarding">
+          <h1>{{ can('admin') ? '欢迎使用知衡，先接入第一个应用' : '团队还没有接入应用' }}</h1>
+          <template v-if="can('admin')">
+            <ol>
+              <li><strong>创建应用</strong>：填写 App 名称和 Android 包名，保存应用 ID 和应用密钥。<a :href="href('apps')">去创建 →</a></li>
+              <li><strong>集成 SDK</strong>：App 集成 Android SDK，业务后端调用事件接口。<a href="https://devicetrust.lingzidev.com/docs/" target="_blank" rel="noopener">查看接入文档 →</a></li>
+              <li><strong>查看风险</strong>：设备开始上报后，风险总览、大盘分析和设备页会出现数据。</li>
+              <li v-if="me?.team?.id"><strong>邀请同事</strong>（可选）：在“团队成员”生成邀请链接。<a :href="href('team')">去邀请 →</a></li>
+            </ol>
+          </template>
+          <p v-else class="muted">请联系团队管理员在“应用管理”中创建应用。创建后这里会显示数据。</p>
+        </section>
+        <component :is="view" v-else :key="route.name + (route.id ? '/' + route.id : '')" />
       </div>
     </div>
     <EventDrawer v-if="openEventId" :id="openEventId" @close="closeEvent" />
