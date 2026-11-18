@@ -96,3 +96,43 @@ func TestReinstallKeepsProfile(t *testing.T) {
 		t.Fatalf("%d profiles", len(p))
 	}
 }
+
+func TestIOSDeviceKeepsIDAcrossKeys(t *testing.T) {
+	store, err := Open(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	s := &Server{Store: store}
+	ios := func(keychain, vendor string) Report {
+		av := func(v any) Signal { return Signal{Status: "available", Value: v} }
+		signals := map[string]Signal{"platform": av("ios"), "model": av("iPhone17,1"), "memory": av(map[string]any{"totalBytes": 8e9}),
+			"display": av(map[string]any{"widthPixels": 1206.0, "heightPixels": 2622.0})}
+		if keychain != "" {
+			signals["keychainId"] = av(keychain)
+		}
+		if vendor != "" {
+			signals["vendorId"] = av(vendor)
+		}
+		return Report{Signals: signals}
+	}
+	first, _, err := s.registerDevice("a", "k1", ios("kc", "V1"))
+	if err != nil || first.Method != "new" {
+		t.Fatal(first, err)
+	}
+	// A key reset or reinstall keeps the keychain secret.
+	second, _, _ := s.registerDevice("a", "k2", ios("kc", "V2"))
+	if second.DeviceID != first.DeviceID || second.Method != "keychain" {
+		t.Fatal(second)
+	}
+	// Keychain cleared, vendor ID kept (another app of the team stayed installed).
+	third, _, _ := s.registerDevice("a", "k3", ios("kc-new", "V2"))
+	if third.DeviceID != first.DeviceID || third.Method != "vendor" {
+		t.Fatal(third)
+	}
+	// Another iPhone of a different model carrying the copied keychain value.
+	clone := ios("kc", "V9")
+	clone.Signals["model"] = Signal{Status: "available", Value: "iPhone15,2"}
+	if other, _, _ := s.registerDevice("a", "k4", clone); other.DeviceID == first.DeviceID {
+		t.Fatal("copied keychain ID matched other hardware")
+	}
+}

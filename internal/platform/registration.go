@@ -14,6 +14,9 @@ import (
 // rules continue on the same device. Matching, strongest first:
 //   - android_id: ANDROID_ID under the app's signers (survives reinstall)
 //   - drm: digest of the Widevine device unique ID (survives reinstall on most devices)
+//   - keychain (iOS): the SDK's per-app device secret in the keychain, which
+//     survives reinstall and a key reset
+//   - vendor (iOS): identifierForVendor, kept while any app of the team stays installed
 //   - boot_session: same hardware build and boot instant as a recent report
 // A match is refused when the hardware profile differs: two phones sharing an
 // identifier means one of them copied it.
@@ -42,6 +45,8 @@ type deviceIdentity struct {
 	Installation string    `json:"installationId"`
 	AndroidID    string    `json:"androidId,omitempty"`
 	DRM          string    `json:"drm,omitempty"`
+	Keychain     string    `json:"keychain,omitempty"`
+	Vendor       string    `json:"vendor,omitempty"`
 	Hardware     string    `json:"hardware,omitempty"`
 	UpdatedAt    time.Time `json:"updatedAt"`
 }
@@ -57,6 +62,22 @@ const (
 	reinstallLimit  = 3
 )
 
+// keychainKey and vendorKey are the iOS identifiers; the keychain ID is
+// already scoped to the app by the SDK.
+func keychainKey(r Report) string {
+	if id := stringSignal(r, "keychainId"); id != "" && stringSignal(r, "platform") == "ios" {
+		return digest("keychain|" + strings.ToLower(id))
+	}
+	return ""
+}
+
+func vendorKey(r Report) string {
+	if id := stringSignal(r, "vendorId"); id != "" && stringSignal(r, "platform") == "ios" {
+		return digest("vendor|" + strings.ToUpper(id))
+	}
+	return ""
+}
+
 func drmKey(r Report) string {
 	if id := stringSignal(r, "drmId"); id != "" {
 		return digest("drm|" + strings.ToLower(id))
@@ -69,6 +90,10 @@ func drmKey(r Report) string {
 func hardwareProfile(r Report) string {
 	model := stringSignal(r, "model")
 	storage, _ := signalMap(r, "storage")["totalBytes"].(float64)
+	if stringSignal(r, "platform") == "ios" {
+		// iOS reports memory instead of storage (disk space needs a privacy reason).
+		storage, _ = signalMap(r, "memory")["totalBytes"].(float64)
+	}
 	display := signalMap(r, "display")
 	width, _ := display["widthPixels"].(float64)
 	height, _ := display["heightPixels"].(float64)
@@ -126,7 +151,7 @@ func (s *Server) registerDevice(appID, keyID string, r Report) (DeviceRegistrati
 func (s *Server) matchDevice(appID string, r Report) (*deviceIdentity, string, []identityIssue, error) {
 	hardware, aid, drm := hardwareProfile(r), androidIDKey(r), drmKey(r)
 	var issues []identityIssue
-	for _, c := range []struct{ method, key string }{{"android_id", aid}, {"drm", drm}} {
+	for _, c := range []struct{ method, key string }{{"android_id", aid}, {"drm", drm}, {"keychain", keychainKey(r)}, {"vendor", vendorKey(r)}} {
 		if c.key == "" {
 			continue
 		}
@@ -210,7 +235,7 @@ func (s *Server) rememberIdentity(appID string, reg DeviceRegistration, r Report
 	for _, f := range []struct {
 		field *string
 		value string
-	}{{&identity.AndroidID, androidIDKey(r)}, {&identity.DRM, drmKey(r)}, {&identity.Hardware, hardwareProfile(r)}} {
+	}{{&identity.AndroidID, androidIDKey(r)}, {&identity.DRM, drmKey(r)}, {&identity.Keychain, keychainKey(r)}, {&identity.Vendor, vendorKey(r)}, {&identity.Hardware, hardwareProfile(r)}} {
 		if f.value != "" {
 			*f.field = f.value
 		}
@@ -218,7 +243,7 @@ func (s *Server) rememberIdentity(appID string, reg DeviceRegistration, r Report
 	if err := s.Store.put("device-identities", appID+":"+reg.DeviceID, identity); err != nil {
 		return err
 	}
-	for method, key := range map[string]string{"android_id": androidIDKey(r), "drm": drmKey(r)} {
+	for method, key := range map[string]string{"android_id": androidIDKey(r), "drm": drmKey(r), "keychain": keychainKey(r), "vendor": vendorKey(r)} {
 		if key == "" {
 			continue
 		}
