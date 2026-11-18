@@ -27,6 +27,8 @@ public class MainActivity extends Activity {
     private JSONObject challenge,report;
     private CheckBox consent,location;
     private interface Task {void run() throws Exception;}
+    // Public experience console account; it can view and resolve events but not add apps.
+    static final String CONSOLE_URL="https://devicetrust-console.lingzidev.com/",CONSOLE_ACCOUNT="demo-android",CONSOLE_PASSWORD="zhiheng2026";
 
     @Override public boolean dispatchTouchEvent(MotionEvent event){TouchAudit.record(event);return super.dispatchTouchEvent(event);}
     @Override public void onCreate(Bundle state){
@@ -35,8 +37,9 @@ public class MainActivity extends Activity {
         TextView title=new TextView(this);title.setText("知衡");title.setTextSize(32);title.setTextColor(Color.rgb(20,125,104));layout.addView(title);
         TextView subtitle=new TextView(this);subtitle.setText("业务保护体验");subtitle.setTextSize(16);layout.addView(subtitle);
         EditText service=new EditText(this);service.setHint("服务地址");service.setText(BuildConfig.DEMO_URL);service.setSingleLine(true);layout.addView(service);
-        EditText account=new EditText(this);account.setHint("账号");account.setSingleLine(true);layout.addView(account);
-        EditText password=new EditText(this);password.setHint("密码");password.setInputType(InputType.TYPE_CLASS_TEXT|InputType.TYPE_TEXT_VARIATION_PASSWORD);layout.addView(password);
+        EditText account=new EditText(this);account.setHint("账号");account.setText("体验用户");account.setSingleLine(true);layout.addView(account);
+        EditText password=new EditText(this);password.setHint("密码");password.setText(BuildConfig.DEMO_PASSWORD);password.setInputType(InputType.TYPE_CLASS_TEXT|InputType.TYPE_TEXT_VARIATION_PASSWORD);layout.addView(password);
+        TextView console=new TextView(this);console.setText("查看风控结果：登录工作台 "+CONSOLE_URL+"\n公开体验账号 "+CONSOLE_ACCOUNT+"  密码 "+CONSOLE_PASSWORD+"\n（所有体验者共用，数据互相可见）");console.setTextIsSelectable(true);console.setTextSize(13);layout.addView(console);
         button(layout,"登录",()->{
             String user=account.getText().toString().trim(),pass=password.getText().toString(),url=service.getText().toString().trim();
             task(()->{

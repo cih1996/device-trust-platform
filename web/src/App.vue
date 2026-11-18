@@ -83,7 +83,7 @@ onMounted(start)
       <div class="sidebar-foot">
         <div class="who">{{ me?.username || username }}<small v-if="me">{{ me.team?.name ? me.team.name + ' · ' : '' }}{{ roleNames[me.role] }}</small></div>
         <a class="nav-item" href="https://devicetrust.lingzidev.com/docs/" target="_blank" rel="noopener"><Icon name="docs" /><span class="label">接入文档</span></a>
-        <a class="nav-item" href="#" @click.prevent="accountOpen = true"><Icon name="account" /><span class="label">账号设置</span></a>
+        <a v-if="!me?.demo" class="nav-item" href="#" @click.prevent="accountOpen = true"><Icon name="account" /><span class="label">账号设置</span></a>
         <a class="nav-item" href="#" @click.prevent="logout"><Icon name="logout" /><span class="label">退出登录</span></a>
       </div>
     </aside>
@@ -101,6 +101,7 @@ onMounted(start)
         <button class="ghost" @click="changed(); loadApps().catch(report)" title="刷新数据"><Icon name="refresh" />刷新</button>
       </header>
       <div class="content">
+        <div v-if="me?.demo" class="notice">公开体验账号：可查看示例 App 的设备与事件，并处理待核验事件；所有体验者共用此账号，数据互相可见。</div>
         <div v-if="error" class="banner" role="alert"><span>{{ error }}</span><button class="ghost small" @click="clearError">关闭</button></div>
         <section v-if="!apps.length && scoped" class="card onboarding">
           <h1>{{ can('admin') ? '欢迎使用知衡，先接入第一个应用' : '团队还没有接入应用' }}</h1>

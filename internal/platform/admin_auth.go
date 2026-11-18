@@ -21,10 +21,13 @@ type AdminUser struct {
 	Iterations int       `json:"iterations"`
 	UpdatedAt  time.Time `json:"updatedAt"`
 	// Tenancy. The startup account has no team and is the platform administrator.
-	TeamID      string     `json:"teamId,omitempty"`
-	Role        string     `json:"role,omitempty"`
-	Platform    bool       `json:"platform,omitempty"`
-	Disabled    bool       `json:"disabled,omitempty"`
+	TeamID   string `json:"teamId,omitempty"`
+	Role     string `json:"role,omitempty"`
+	Platform bool   `json:"platform,omitempty"`
+	Disabled bool   `json:"disabled,omitempty"`
+	// Demo is a public experience account: its password is published, so it
+	// cannot change the password and many visitors may sign in at once.
+	Demo        bool       `json:"demo,omitempty"`
 	CreatedAt   time.Time  `json:"createdAt"`
 	LastLoginAt *time.Time `json:"lastLoginAt,omitempty"`
 	// Sessions issued before this instant are void (password reset, disable).
@@ -132,7 +135,7 @@ func (s *Server) adminLogin(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	name := strings.ToLower(strings.TrimSpace(input.Username))
-	if !s.limits.allow("login|"+remoteIP(r), 30, 15*time.Minute) || !s.limits.allow("login|"+name, 10, 15*time.Minute) {
+	if !s.limits.allow("login|"+remoteIP(r), 30, 15*time.Minute) {
 		fail(w, 429, errors.New("登录尝试过于频繁，请 15 分钟后再试"))
 		return
 	}
@@ -140,6 +143,11 @@ func (s *Server) adminLogin(w http.ResponseWriter, r *http.Request) {
 	err := s.Store.get("admin-users", name, &user)
 	if err != nil && !errors.Is(err, os.ErrNotExist) {
 		fail(w, 500, err)
+		return
+	}
+	// A public account is shared by every visitor; only the address limit applies.
+	if !user.Demo && !s.limits.allow("login|"+name, 10, 15*time.Minute) {
+		fail(w, 429, errors.New("登录尝试过于频繁，请 15 分钟后再试"))
 		return
 	}
 	if err != nil || !adminPasswordMatches(user, input.Password) {
@@ -187,6 +195,10 @@ func (s *Server) authorizeAdmin(r *http.Request) (*access, error) {
 }
 
 func (s *Server) changeAdminPassword(w http.ResponseWriter, r *http.Request) {
+	if accessFrom(r).user.Demo {
+		fail(w, 403, errors.New("体验账号不能修改密码"))
+		return
+	}
 	var input struct {
 		CurrentPassword string `json:"currentPassword"`
 		NewPassword     string `json:"newPassword"`

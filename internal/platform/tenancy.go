@@ -319,7 +319,7 @@ func (s *Server) startSession(w http.ResponseWriter, user AdminUser) {
 
 func (s *Server) me(w http.ResponseWriter, r *http.Request) {
 	a := accessFrom(r)
-	reply(w, 200, map[string]any{"username": a.user.Username, "role": a.role(), "team": a.team})
+	reply(w, 200, map[string]any{"username": a.user.Username, "role": a.role(), "team": a.team, "demo": a.user.Demo})
 }
 
 type memberRow struct {
@@ -553,6 +553,8 @@ func (s *Server) platformAPI(w http.ResponseWriter, r *http.Request, path string
 			return
 		}
 		reply(w, 200, team)
+	case path == "platform/demo-accounts" && r.Method == "POST":
+		s.createDemoAccount(w, r)
 	case strings.HasPrefix(path, "platform/users/") && strings.HasSuffix(path, "/reset-password") && r.Method == "POST":
 		name := strings.TrimSuffix(strings.TrimPrefix(path, "platform/users/"), "/reset-password")
 		var user AdminUser
@@ -602,4 +604,59 @@ func (s *Server) platformAPI(w http.ResponseWriter, r *http.Request, path string
 	default:
 		fail(w, 404, errors.New("接口不存在"))
 	}
+}
+
+// createDemoAccount sets up a public experience account: a team holding the
+// given sample apps and an analyst whose password is published. Visitors can
+// view devices and events and resolve held events, but cannot add apps, edit
+// policies, manage the team or change the password.
+func (s *Server) createDemoAccount(w http.ResponseWriter, r *http.Request) {
+	var input struct {
+		Team     string   `json:"team"`
+		Username string   `json:"username"`
+		Password string   `json:"password"`
+		AppIDs   []string `json:"appIds"`
+	}
+	if err := decode(w, r, &input); err != nil {
+		fail(w, 400, err)
+		return
+	}
+	name := strings.TrimSpace(input.Team)
+	if name == "" || len(input.AppIDs) == 0 {
+		fail(w, 400, errors.New("需要团队名称和至少一个应用"))
+		return
+	}
+	apps := make([]App, len(input.AppIDs))
+	for i, id := range input.AppIDs {
+		if err := s.Store.get("apps", id, &apps[i]); err != nil {
+			fail(w, 404, errors.New("应用不存在："+id))
+			return
+		}
+		if apps[i].TeamID != "" {
+			fail(w, 409, errors.New("应用已属于其他团队："+apps[i].Name))
+			return
+		}
+	}
+	team := Team{ID: token(), Name: name, CreatedAt: time.Now().UTC()}
+	user, err := s.createUser(input.Username, input.Password, team.ID, roleAnalyst)
+	if err != nil {
+		fail(w, statusOf(err), err)
+		return
+	}
+	user.Demo = true
+	team.Owner = user.Username
+	if err = s.Store.put("admin-users", user.Username, user); err == nil {
+		err = s.Store.create("teams", team.ID, team)
+	}
+	for i := range apps {
+		if err == nil {
+			apps[i].TeamID = team.ID
+			err = s.Store.put("apps", apps[i].ID, apps[i])
+		}
+	}
+	if err != nil {
+		fail(w, 500, err)
+		return
+	}
+	reply(w, 201, map[string]any{"team": team, "username": user.Username})
 }

@@ -144,3 +144,36 @@ func TestPasswordPolicy(t *testing.T) {
 		}
 	}
 }
+
+func TestDemoAccountIsReadMostlyAndShared(t *testing.T) {
+	store, err := Open(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err = EnsureAdminUser(store, "admin", "platform-password-123"); err != nil {
+		t.Fatal(err)
+	}
+	h := (&Server{Store: store, AdminUser: "admin"}).Handler(t.TempDir())
+	root := request(t, h, "POST", "/api/auth/login", "", map[string]string{"username": "admin", "password": "platform-password-123"}, 200)["token"].(string)
+	store.put("apps", "sample", App{ID: "sample", Name: "知衡体验", Package: "com.device.trust.sample", KeyHash: digest("k")})
+	store.put("apps", "other", App{ID: "other", Name: "其他", Package: "com.other"})
+	body := map[string]any{"team": "知衡体验", "username": "demo", "password": "demo2026", "appIds": []string{"sample"}}
+	request(t, h, "POST", "/api/platform/demo-accounts", root, body, 201)
+	request(t, h, "POST", "/api/platform/demo-accounts", root, map[string]any{"team": "x", "username": "demo2", "password": "demo2026", "appIds": []string{"sample"}}, 409)
+	// Many visitors sign in; the per-account limit does not lock it.
+	var demo string
+	for i := 0; i < 15; i++ {
+		demo = request(t, h, "POST", "/api/auth/login", "", map[string]string{"username": "demo", "password": "demo2026"}, 200)["token"].(string)
+	}
+	me := request(t, h, "GET", "/api/auth/me", demo, nil, 200)
+	if me["demo"] != true || me["role"] != "analyst" {
+		t.Fatal(me)
+	}
+	if apps := requestList(t, h, "/api/apps", demo); len(apps) != 1 {
+		t.Fatal(apps)
+	}
+	request(t, h, "POST", "/api/apps", demo, map[string]string{"name": "mine", "package": "com.mine"}, 403)
+	request(t, h, "PUT", "/api/auth/password", demo, map[string]string{"currentPassword": "demo2026", "newPassword": "changed123"}, 403)
+	request(t, h, "POST", "/api/team/invites", demo, map[string]string{"role": "admin"}, 403)
+	request(t, h, "PUT", "/api/apps/sample/security", demo, AppSecurity{MaxEnrollmentHours: 24}, 403)
+}
