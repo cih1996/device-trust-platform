@@ -65,8 +65,8 @@ async function submit() {
       <p v-if="mode === 'join'" class="notice" style="margin:0">你收到了团队邀请，设置账号和密码后即可加入。</p>
       <label v-if="mode === 'register'" class="field">团队 / 公司名称<input v-model="team" required maxlength="40" placeholder="例如：某某科技" autofocus></label>
       <label class="field">账号<input v-model="name" autocomplete="username" required :autofocus="mode !== 'register'" :placeholder="mode === 'login' ? '' : '3–40 位小写字母、数字或 _ . @ -'"></label>
-      <label class="field">密码<input v-model="password" type="password" :autocomplete="mode === 'login' ? 'current-password' : 'new-password'" required :minlength="mode === 'login' ? null : 12" :placeholder="mode === 'login' ? '' : '至少 12 位'"></label>
-      <label v-if="mode !== 'login'" class="field">确认密码<input v-model="confirm" type="password" autocomplete="new-password" required minlength="12"></label>
+      <label class="field">密码<input v-model="password" type="password" :autocomplete="mode === 'login' ? 'current-password' : 'new-password'" required :minlength="mode === 'login' ? null : 6" :placeholder="mode === 'login' ? '' : '至少 6 位，含字母和数字'"></label>
+      <label v-if="mode !== 'login'" class="field">确认密码<input v-model="confirm" type="password" autocomplete="new-password" required minlength="6"></label>
       <p v-if="message" class="error-text" role="alert">{{ message }}</p>
       <button class="primary" :disabled="busy">{{ busy ? '请稍候…' : mode === 'login' ? '登录' : mode === 'register' ? '注册并创建团队' : '加入团队' }}</button>
       <p class="muted" style="margin:0;font-size:13px;text-align:center">

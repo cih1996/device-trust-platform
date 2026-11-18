@@ -293,6 +293,9 @@ func (s *Server) createUser(username, password, teamID, role string) (AdminUser,
 	if err != nil {
 		return AdminUser{}, err
 	}
+	if err = passwordPolicy(password); err != nil {
+		return AdminUser{}, err
+	}
 	user, err := newAdminUser(name, password)
 	if err != nil {
 		return user, err

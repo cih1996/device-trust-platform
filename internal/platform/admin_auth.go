@@ -60,11 +60,25 @@ func deriveAdminPassword(password string, salt []byte, iterations int) []byte {
 }
 
 func newAdminUser(username, password string) (AdminUser, error) {
-	if strings.TrimSpace(username) == "" || len(password) < 12 {
-		return AdminUser{}, errors.New("管理账号和至少 12 位密码为必填项")
+	if strings.TrimSpace(username) == "" || len(password) < 6 {
+		return AdminUser{}, errors.New("账号和至少 6 位密码为必填项")
 	}
 	salt := randomBytes(16)
 	return AdminUser{Username: strings.TrimSpace(username), Salt: base64.RawStdEncoding.EncodeToString(salt), Hash: base64.RawStdEncoding.EncodeToString(deriveAdminPassword(password, salt, adminPasswordIterations)), Iterations: adminPasswordIterations, UpdatedAt: time.Now().UTC()}, nil
+}
+
+// passwordPolicy applies to passwords people choose: at least 6 characters
+// with a letter and a digit. Generated and bootstrap passwords skip it.
+func passwordPolicy(password string) error {
+	letter, digit := false, false
+	for _, c := range password {
+		letter = letter || c >= 'a' && c <= 'z' || c >= 'A' && c <= 'Z'
+		digit = digit || c >= '0' && c <= '9'
+	}
+	if len(password) < 6 || !letter || !digit {
+		return errors.New("密码至少 6 位，需同时包含字母和数字")
+	}
+	return nil
 }
 
 func adminPasswordMatches(user AdminUser, password string) bool {
@@ -188,6 +202,10 @@ func (s *Server) changeAdminPassword(w http.ResponseWriter, r *http.Request) {
 	}
 	if !adminPasswordMatches(user, input.CurrentPassword) {
 		fail(w, 401, errors.New("当前密码错误"))
+		return
+	}
+	if err := passwordPolicy(input.NewPassword); err != nil {
+		fail(w, 400, err)
 		return
 	}
 	updated, err := newAdminUser(user.Username, input.NewPassword)

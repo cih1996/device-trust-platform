@@ -25,8 +25,8 @@ async function save() {
       <p class="muted" style="margin:0">当前账号：{{ username }}</p>
       <template v-if="!done">
         <label class="field">当前密码<input v-model="current" type="password" autocomplete="current-password" required></label>
-        <label class="field">新密码<input v-model="next" type="password" autocomplete="new-password" minlength="12" required placeholder="至少 12 位"></label>
-        <label class="field">确认新密码<input v-model="confirm" type="password" autocomplete="new-password" minlength="12" required></label>
+        <label class="field">新密码<input v-model="next" type="password" autocomplete="new-password" minlength="6" required placeholder="至少 6 位，含字母和数字"></label>
+        <label class="field">确认新密码<input v-model="confirm" type="password" autocomplete="new-password" minlength="6" required></label>
         <p v-if="message" class="error-text" role="alert">{{ message }}</p>
         <div class="row-gap" style="justify-content:flex-end">
           <button type="button" @click="emit('close')">取消</button>

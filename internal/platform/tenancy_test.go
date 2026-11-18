@@ -22,11 +22,11 @@ func TestTeamsAreIsolated(t *testing.T) {
 	}
 	root := login("admin", "platform-password-123")
 	signup := func(name, team string) string {
-		return request(t, h, "POST", "/api/auth/register", "", map[string]string{"username": name, "password": "a-long-password", "team": team}, 201)["token"].(string)
+		return request(t, h, "POST", "/api/auth/register", "", map[string]string{"username": name, "password": "abc123", "team": team}, 201)["token"].(string)
 	}
 	alice, bob := signup("Alice", "甲公司"), signup("bob", "乙公司")
-	request(t, h, "POST", "/api/auth/register", "", map[string]string{"username": "alice", "password": "a-long-password", "team": "x"}, 409)
-	request(t, h, "POST", "/api/auth/register", "", map[string]string{"username": "admin", "password": "a-long-password", "team": "x"}, 409)
+	request(t, h, "POST", "/api/auth/register", "", map[string]string{"username": "alice", "password": "abc123", "team": "x"}, 409)
+	request(t, h, "POST", "/api/auth/register", "", map[string]string{"username": "admin", "password": "abc123", "team": "x"}, 409)
 
 	newApp := func(session, name string) (string, string) {
 		a := request(t, h, "POST", "/api/apps", session, map[string]string{"name": name, "package": "com.example." + name}, 201)
@@ -85,8 +85,8 @@ func TestTeamsAreIsolated(t *testing.T) {
 
 	// Invites and roles.
 	invite := request(t, h, "POST", "/api/team/invites", alice, map[string]string{"role": "viewer"}, 201)["code"].(string)
-	carol := request(t, h, "POST", "/api/auth/join", "", map[string]string{"code": invite, "username": "carol", "password": "a-long-password"}, 201)["token"].(string)
-	request(t, h, "POST", "/api/auth/join", "", map[string]string{"code": invite, "username": "dave", "password": "a-long-password"}, 400)
+	carol := request(t, h, "POST", "/api/auth/join", "", map[string]string{"code": invite, "username": "carol", "password": "abc123"}, 201)["token"].(string)
+	request(t, h, "POST", "/api/auth/join", "", map[string]string{"code": invite, "username": "dave", "password": "abc123"}, 400)
 	if apps(carol) != 1 {
 		t.Fatal("viewer cannot see team apps")
 	}
@@ -111,11 +111,11 @@ func TestTeamsAreIsolated(t *testing.T) {
 	request(t, h, "PUT", "/api/platform/teams/"+teamA, root, map[string]any{"disabled": true}, 200)
 	request(t, h, "GET", "/api/apps", alice, nil, 403)
 	request(t, h, "POST", "/v1/events", keyA, map[string]any{"eventId": "e2", "appId": appA, "reportId": "ra", "accountId": "u1", "type": "login"}, 403)
-	request(t, h, "POST", "/api/auth/login", "", map[string]string{"username": "alice", "password": "a-long-password"}, 403)
+	request(t, h, "POST", "/api/auth/login", "", map[string]string{"username": "alice", "password": "abc123"}, 403)
 
 	// Platform switches sign-up off and resets a password.
 	request(t, h, "PUT", "/api/platform/settings", root, PlatformSettings{SignupOpen: false, MaxAppsPerTeam: 1}, 200)
-	request(t, h, "POST", "/api/auth/register", "", map[string]string{"username": "eve", "password": "a-long-password", "team": "x"}, 403)
+	request(t, h, "POST", "/api/auth/register", "", map[string]string{"username": "eve", "password": "abc123", "team": "x"}, 403)
 	request(t, h, "POST", "/api/apps", bob, map[string]string{"name": "b2", "package": "com.example.b2"}, 403)
 	reset := request(t, h, "POST", "/api/platform/users/bob/reset-password", root, map[string]any{}, 200)["password"].(string)
 	request(t, h, "GET", "/api/apps", bob, nil, 401)
@@ -135,4 +135,12 @@ func requestList(t *testing.T, h interface {
 		t.Fatalf("GET %s: %d %s", path, w.Code, w.Body.String())
 	}
 	return out
+}
+
+func TestPasswordPolicy(t *testing.T) {
+	for password, ok := range map[string]bool{"abc123": true, "ABC123": true, "a1b2c3d4": true, "abcdef": false, "123456": false, "ab12": false, "密码密码12": false} {
+		if (passwordPolicy(password) == nil) != ok {
+			t.Errorf("%q: want ok=%v", password, ok)
+		}
+	}
 }
