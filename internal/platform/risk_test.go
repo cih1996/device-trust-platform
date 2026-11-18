@@ -255,4 +255,19 @@ func TestCarrierChecks(t *testing.T) {
 	if got := run("46003", "46000", "电信", true); got["sim_network/unknown"] != 0 || len(got) != 2 {
 		t.Fatal(got)
 	}
+	// A US eSIM used in China reports no roaming; that is not a contradiction.
+	if got := run("310410", "46000", "移动", false); got["sim_network/unknown"] != 0 || len(got) != 2 {
+		t.Fatal(got)
+	}
+}
+
+func TestLegacyKSUMountMarkerIgnored(t *testing.T) {
+	native := map[string]any{"rootMounts": []any{"ksu"}}
+	if got := rootMounts(native); len(got) != 0 {
+		t.Fatal(got)
+	}
+	native["rootMounts"] = []any{"ksu", "overlay KSU /system/bin"}
+	if got := rootMounts(native); len(got) != 1 {
+		t.Fatal(got)
+	}
 }

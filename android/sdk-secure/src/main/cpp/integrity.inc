@@ -15,6 +15,7 @@
 #include <time.h>
 #include <sys/syscall.h>
 #include <pthread.h>
+#include <strings.h>
 
 static bool jsonArrayPut(JNIEnv* env,jobject array,const char* value){
     jstring text=env->NewStringUTF(value);
@@ -46,8 +47,26 @@ static const char* const EMULATOR_HARDWARE[]={"goldfish","ranchu","vbox86","nox"
 static const char* const ROOT_PROPS[]={"magisk","kernelsu","ksu.","apatch","zygisk","lsposed","xposed","riru","shamiko","playintegrity","trickystore","tricky_store"};
 // Boot and bootloader state. Hiding tools rewrite ro.boot.verifiedbootstate but often miss the copies.
 static const char* const BOOT_PROPS[]={"verifiedbootstate","vbmeta_state","vbmeta.device_state","flash.locked","veritymode"};
-// Mount sources or targets that only appear when root overlays are visible to this process.
-static const char* const ROOT_MOUNTS[]={"magisk","/data/adb","kernelsu","ksu","apatch","zygisk","/debug_ramdisk"};
+// Mount sources named by root frameworks, and directories only they mount from or onto.
+// Whole fields are compared: substring matches hit unrelated vendor mounts.
+static const char* const ROOT_MOUNT_SOURCES[]={"magisk","ksu","kernelsu","apatch"};
+static const char* const ROOT_MOUNT_DIRS[]={"/data/adb","/debug_ramdisk"};
+static bool underDir(const char* path,const char* dir){
+    size_t n=strlen(dir);return strncmp(path,dir,n)==0&&(path[n]==0||path[n]=='/');
+}
+// Parses one /proc/self/mountinfo line; writes "fstype source mountpoint" when it is a root mount.
+static bool rootMount(char* line,char* out,size_t size){
+    char* field[16];int count=0;char* save=nullptr;
+    for(char* t=strtok_r(line," \n",&save);t&&count<16;t=strtok_r(nullptr," \n",&save))field[count++]=t;
+    int dash=-1;for(int i=6;i<count;i++)if(strcmp(field[i],"-")==0){dash=i;break;}
+    if(count<5||dash<0||dash+2>=count)return false;
+    const char *root=field[3],*target=field[4],*type=field[dash+1],*source=field[dash+2];
+    bool hit=false;
+    for(const char* name:ROOT_MOUNT_SOURCES)if(strcasecmp(source,name)==0)hit=true;
+    for(const char* dir:ROOT_MOUNT_DIRS)if(underDir(root,dir)||underDir(target,dir)||underDir(source,dir))hit=true;
+    if(hit)snprintf(out,size,"%s %s %s",type,source,target);
+    return hit;
+}
 
 struct PropScan{JNIEnv* env;jobject boot,root;size_t bootCount,rootCount;};
 static void propMatch(PropScan* scan,const char* name,const char* value){
@@ -246,10 +265,9 @@ OBF static jstring integrity(JNIEnv* env,jclass){
 
     jobject mounts=construct(env,"org/json/JSONArray","()V");NEED(mounts);
     file=fopen("/proc/self/mountinfo","r");
-    if(file){const char* reported[sizeof(ROOT_MOUNTS)/sizeof(ROOT_MOUNTS[0])];size_t count=0;char line[1024];
-        while(fgets(line,sizeof(line),file))for(const char* marker:ROOT_MOUNTS){if(!containsFold(line,marker))continue;
-            bool duplicate=false;for(size_t j=0;j<count;j++)if(reported[j]==marker)duplicate=true;
-            if(!duplicate){reported[count++]=marker;jsonArrayPut(env,mounts,marker);}}
+    if(file){char line[1024],hit[256];size_t count=0;
+        while(count<8&&fgets(line,sizeof(line),file))if(rootMount(line,hit,sizeof(hit))){
+            if(!jsonArrayPut(env,mounts,hit)){fclose(file);return nullptr;}count++;}
         fclose(file);
     } else jsonText(env,errors,"mountinfo",strerror(errno));
 

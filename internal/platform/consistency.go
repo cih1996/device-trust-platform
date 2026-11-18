@@ -52,7 +52,9 @@ func carrierChecks(r Report, ipISP, ipCountry string, add func(code, state, dime
 			add("sim_network_mismatch", "conflict", "network", "SIM "+simGroup+"（"+sim+"）注册在 "+netGroup+"（"+network+"）且未漫游", "client", 25)
 		}
 	} else if sim[:3] != network[:3] {
-		add("sim_network_mismatch", "conflict", "network", "SIM "+sim+" 与网络 "+network+" 国家码不同且未漫游", "client", 20)
+		// Travel and global eSIMs list foreign networks as equivalent home networks,
+		// so Android reports no roaming abroad; a country difference proves nothing.
+		add("sim_network", "unknown", "network", "境外 SIM "+sim+" 注册在 "+network+"，跨国不比对", "client", 0)
 	} else {
 		add("sim_network", "matched", "network", "SIM "+sim+" / 网络 "+network, "client", 0)
 	}
@@ -135,7 +137,7 @@ func environmentConsistency(r Report, add func(int, string)) {
 	if names, _ := native["rootProperties"].([]any); len(names) > 0 {
 		add(35, "root_properties")
 	}
-	if mounts, _ := native["rootMounts"].([]any); len(mounts) > 0 {
+	if mounts := rootMounts(native); len(mounts) > 0 {
 		add(40, "root_mounts")
 	}
 	if context, _ := native["selinuxContext"].(string); context != "" {
@@ -223,4 +225,18 @@ func cellChecks(r Report, cells []cellObservation, add func(code, state, dimensi
 		add("cell_operator", "matched", "network", "注册基站与运营商一致", "client", 0)
 		return
 	}
+}
+
+// rootMounts drops the bare "ksu" marker that SDKs before 0.7.8 reported for any
+// mountinfo line containing those three letters; newer SDKs report the matched
+// mount itself.
+func rootMounts(native map[string]any) []any {
+	var hits []any
+	list, _ := native["rootMounts"].([]any)
+	for _, item := range list {
+		if item != "ksu" {
+			hits = append(hits, item)
+		}
+	}
+	return hits
 }
