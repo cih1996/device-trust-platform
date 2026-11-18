@@ -100,7 +100,7 @@ const hasEvents = computed(() => data.value?.summary.events > 0)
           <div class="card-head"><div><h2>设备风险分布</h2><span class="sub">期间活跃设备的当前评分</span></div></div>
           <div class="card-body">
             <Donut :segments="deviceSegments" center-label="活跃设备" @select="level => go('devices', '', { app: appId, level })" />
-            <p class="muted" style="font-size:12px;margin:14px 0 0">设备评分取环境评分与 7 天内业务事件最高分中的较高者。</p>
+            <p class="muted" style="font-size:12px;margin:14px 0 0">设备评分 = 最新上报的环境评分 + 7 天内业务行为最高分（上限 100）。环境恢复正常后，下次上报即降分。</p>
           </div>
         </section>
       </div>

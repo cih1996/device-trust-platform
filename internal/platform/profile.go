@@ -59,9 +59,22 @@ func environmentHits(r Report) []RuleHit {
 	return append(hits, resourceHits(r)...)
 }
 
+// businessPoints is an event's score without its device-environment hits. The
+// environment is judged from the latest report only, so a device recovers as
+// soon as it reports a clean environment (e.g. USB debugging switched off).
+func businessPoints(e Event) int {
+	points := 0
+	for _, hit := range e.Hits {
+		if hit.Source != "client" && hit.Source != "resource" {
+			points += hit.Points
+		}
+	}
+	return min(points, 100)
+}
+
 // Profiles are scoped to the app and the untrusted client installation identifier.
-// A device score is the higher of its current environment score and its
-// peak business event score within deviceRiskWindow.
+// A device score is its current environment score (latest report) plus the
+// peak business-behaviour score within deviceRiskWindow.
 func profiles(reports []Report, events []Event, appID string) []Profile {
 	now := time.Now().UTC()
 	devices := map[string]*Profile{}
@@ -108,8 +121,9 @@ func profiles(reports []Report, events []Event, appID string) []Profile {
 			if e.Score >= 70 {
 				p.HighEvents++
 			}
-			if p.peakEvent == nil || e.Score > p.peakEvent.Score {
+			if score := businessPoints(e); p.peakEvent == nil || score > p.BusinessScore {
 				p.peakEvent = &events[i]
+				p.BusinessScore = score
 			}
 		}
 	}
@@ -128,14 +142,13 @@ func profiles(reports []Report, events []Event, appID string) []Profile {
 		}
 		p.EnvScore = min(p.EnvScore, 100)
 		if p.peakEvent != nil {
-			p.BusinessScore = p.peakEvent.Score
 			for _, hit := range p.peakEvent.Hits {
 				if hit.Source != "client" && hit.Source != "resource" {
 					p.Factors = append(p.Factors, hit)
 				}
 			}
 		}
-		p.RiskScore = max(p.EnvScore, p.BusinessScore)
+		p.RiskScore = min(p.EnvScore+p.BusinessScore, 100)
 		p.RiskLevel = riskLevel(p.RiskScore)
 		result = append(result, *p)
 	}

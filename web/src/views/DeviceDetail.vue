@@ -216,7 +216,7 @@ async function revoke() {
     <template v-if="tab === 'risk'">
       <div class="grid g-2" style="margin-bottom:16px">
         <section class="card">
-          <div class="card-head"><div><h2>评分构成</h2><span class="sub">设备评分 {{ p.riskScore }} = max(环境 {{ p.envScore }}, 业务 {{ p.businessScore }})</span></div></div>
+          <div class="card-head"><div><h2>评分构成</h2><span class="sub">设备评分 {{ p.riskScore }} = 环境 {{ p.envScore }} + 业务 {{ p.businessScore }}</span></div></div>
           <div class="card-body">
             <div class="section-title">环境线索 <small>{{ envFactors.length ? '最近一次上报' : '' }}</small></div>
             <div v-for="(f, i) in envFactors" :key="'e' + i" class="factor">

@@ -132,9 +132,9 @@ POST /v1/challenges
 
 | 字段 | 含义 |
 |---|---|
-| riskScore / riskLevel | 设备总分 0–100，等于 max(envScore, businessScore)；low < 30 ≤ medium < 70 ≤ high |
-| envScore | 本次上报的设备环境分 |
-| businessScore | 该设备 7 天内业务事件的最高分 |
+| riskScore / riskLevel | 设备总分 0–100，等于 envScore + businessScore（上限 100）；low < 30 ≤ medium < 70 ≤ high |
+| envScore | 最新一次上报的设备环境分（环境恢复后下次上报即降分） |
+| businessScore | 该设备 7 天内业务事件中业务行为规则的最高分（不含当时的环境分） |
 | factors | 命中的规则，代码表见第 8 节 |
 | keyStatus | `active`，或 `revoked`（已在工作台停用） |
 | app.signer | `matched` 签名一致；`mismatch` 签名不符（疑似重打包）；`unknown` 未上报；`unconfigured` 工作台未填写证书 |
