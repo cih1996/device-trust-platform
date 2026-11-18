@@ -36,6 +36,10 @@ public enum DeviceTrust {
     /// every cold start once the user accepted the privacy policy.
     public static func initialize(config: Config, consent: Bool) async throws -> Result {
         guard consent else { throw DeviceTrustError.consentRequired }
+        return try await Serial.shared.run { try await register(config: config) }
+    }
+
+    private static func register(config: Config) async throws -> Result {
         let report = try await Collector.collect(appId: config.appId)
         let keyId = try SecureReporter.keyId(appId: config.appId)
         let input: [String: Any] = ["appId": config.appId, "installationId": report["installationId"] as Any, "keyId": keyId]
@@ -55,8 +59,11 @@ public enum DeviceTrust {
     /// call it when the app returns to the foreground. Returns nil when skipped.
     @discardableResult
     public static func refreshIfNeeded(config: Config, consent: Bool, interval: TimeInterval = 30 * 60) async throws -> Result? {
-        if let last = Store.lastReport(appId: config.appId), Date().timeIntervalSince(last) < interval { return nil }
-        return try await initialize(config: config, consent: consent)
+        guard consent else { throw DeviceTrustError.consentRequired }
+        return try await Serial.shared.run {
+            if let last = Store.lastReport(appId: config.appId), Date().timeIntervalSince(last) < interval { return nil }
+            return try await register(config: config)
+        }
     }
 
     /// Signs a report for a business challenge. Your server obtained the
@@ -64,10 +71,12 @@ public enum DeviceTrust {
     /// URL, to the app; give the returned reportId back to your server.
     public static func report(challenge: [String: Any], platformURL: URL, pins: [String]) async throws -> Result {
         guard let appId = challenge["appId"] as? String else { throw DeviceTrustError.protocolError("challenge without appId") }
-        let report = try await Collector.collect(appId: appId)
-        let result = try await SecureReporter.upload(platformURL: platformURL, pins: pins, challenge: challenge, report: report)
-        Store.setLastReport(appId: appId, Date())
-        return result
+        return try await Serial.shared.run {
+            let report = try await Collector.collect(appId: appId)
+            let result = try await SecureReporter.upload(platformURL: platformURL, pins: pins, challenge: challenge, report: report)
+            Store.setLastReport(appId: appId, Date())
+            return result
+        }
     }
 
     /// The enrolled device key ID, or "" before the first registration.

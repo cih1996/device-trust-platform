@@ -42,6 +42,14 @@ final class SampleModel: ObservableObject {
 
     func register() { run { "设备已登记\n" + self.describe(try await DeviceTrust.initialize(config: Demo.config, consent: true)) } }
 
+    /// Drops the device key so the next registration enrolls and attests a new one.
+    func reenroll() {
+        run {
+            try DeviceTrust.reset(appId: Demo.appId)
+            return "已重新登记\n" + self.describe(try await DeviceTrust.initialize(config: Demo.config, consent: true))
+        }
+    }
+
     func refresh() {
         guard consent else { return }
         run {
@@ -119,6 +127,7 @@ struct ContentView: View {
                 Section {
                     Toggle("同意设备与网络信息采集", isOn: $model.consent)
                     Button("更新设备档案") { model.register() }.disabled(!model.consent)
+                    Button("重新登记设备") { model.reenroll() }.disabled(!model.consent)
                 } footer: { Text("采集机型、系统与运行环境，用于设备登记和风险识别；不需要任何权限。") }
                 Section("演示业务") {
                     TextField("账号", text: $model.account)
