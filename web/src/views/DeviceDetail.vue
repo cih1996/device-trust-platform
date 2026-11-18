@@ -4,7 +4,7 @@ import { api } from '../api.js'
 import { route, setQuery, href, go } from '../router.js'
 import { appId, appName, revision, report, openEvent, changed, can } from '../store.js'
 import { fullTime, dateTime, relative, region, gib, levelNames, levelOf } from '../format.js'
-import { reasonName, sourceNames, sceneNames, statusNames } from '../risk-display.js'
+import { reasonName, sourceNames, sceneNames, statusNames, signed } from '../risk-display.js'
 import ScoreRing from '../components/ScoreRing.vue'
 import RiskScore from '../components/RiskScore.vue'
 import LevelTag from '../components/LevelTag.vue'
@@ -48,8 +48,8 @@ const cells = computed(() => sig('cell') || [])
 const lan = computed(() => sig('lan'))
 const lanProbe = computed(() => sig('lanProbe'))
 const lanIp = computed(() => lan.value?.addresses?.[0]?.address || '')
-const envFactors = computed(() => (p.value?.factors || []).filter(f => f.source === 'client' || f.source === 'resource'))
-const bizFactors = computed(() => (p.value?.factors || []).filter(f => f.source !== 'client' && f.source !== 'resource'))
+const envFactors = computed(() => (p.value?.factors || []).filter(f => ['client', 'resource', 'recovery'].includes(f.source)))
+const bizFactors = computed(() => (p.value?.factors || []).filter(f => !['client', 'resource', 'recovery'].includes(f.source)))
 const completeness = computed(() => {
   const values = Object.values(r.value?.signals || {})
   return { available: values.filter(s => s.status === 'available').length, total: values.length }
@@ -220,13 +220,14 @@ async function revoke() {
           <div class="card-body">
             <div class="section-title">环境线索 <small>{{ envFactors.length ? '最近一次上报' : '' }}</small></div>
             <div v-for="(f, i) in envFactors" :key="'e' + i" class="factor">
-              <span>{{ reasonName(f.code) }}</span><span class="pts">+{{ f.points }}</span>
-              <small>{{ sourceNames[f.source] }}<template v-if="f.threshold"> · 观测 {{ f.observed }} / 阈值 {{ f.threshold }}</template></small>
+              <span>{{ reasonName(f.code) }}</span><span class="pts">{{ signed(f.points) }}</span>
+              <small v-if="f.source === 'recovery'">已良好使用 {{ f.observed }} 天，网络类线索最多全免、聚集类最多减半（满 {{ f.threshold }} 天封顶）；出现 Root、调试、自动化等硬风险即清零</small>
+              <small v-else>{{ sourceNames[f.source] }}<template v-if="f.threshold"> · 观测 {{ f.observed }} / 阈值 {{ f.threshold }}</template></small>
             </div>
             <p v-if="!envFactors.length" class="muted" style="margin:0 0 12px">最近一次上报没有命中环境线索</p>
             <div class="section-title" style="margin-top:12px">业务线索 <small>7 天内最高分事件</small></div>
             <div v-for="(f, i) in bizFactors" :key="'b' + i" class="factor">
-              <span>{{ reasonName(f.code) }}</span><span class="pts">+{{ f.points }}</span>
+              <span>{{ reasonName(f.code) }}</span><span class="pts">{{ signed(f.points) }}</span>
               <small>{{ sourceNames[f.source] || f.source }}<template v-if="f.threshold"> · 观测 {{ f.observed }} / 阈值 {{ f.threshold }}</template><template v-if="f.windowSeconds"> · {{ f.windowSeconds >= 3600 ? f.windowSeconds / 3600 + ' 小时' : f.windowSeconds / 60 + ' 分钟' }}窗口</template></small>
             </div>
             <p v-if="!bizFactors.length" class="muted" style="margin:0">7 天内没有命中业务规则</p>

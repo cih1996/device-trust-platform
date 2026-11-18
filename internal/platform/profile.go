@@ -56,7 +56,8 @@ func environmentHits(r Report) []RuleHit {
 	if roots := rootIndicators(r); roots >= 2 {
 		hits = append(hits, RuleHit{Code: "root_indicators", Points: 20, Source: "client", Dimension: "client_environment", Observed: roots, Threshold: 2})
 	}
-	return append(hits, resourceHits(r)...)
+	hits = append(hits, resourceHits(r)...)
+	return append(hits, recoveryHit(r)...)
 }
 
 // businessPoints is an event's score without its device-environment hits. The
@@ -65,7 +66,7 @@ func environmentHits(r Report) []RuleHit {
 func businessPoints(e Event) int {
 	points := 0
 	for _, hit := range e.Hits {
-		if hit.Source != "client" && hit.Source != "resource" {
+		if hit.Source != "client" && hit.Source != "resource" && hit.Source != "recovery" {
 			points += hit.Points
 		}
 	}
@@ -140,10 +141,10 @@ func profiles(reports []Report, events []Event, appID string) []Profile {
 		for _, hit := range p.Factors {
 			p.EnvScore += hit.Points
 		}
-		p.EnvScore = min(p.EnvScore, 100)
+		p.EnvScore = max(min(p.EnvScore, 100), 0)
 		if p.peakEvent != nil {
 			for _, hit := range p.peakEvent.Hits {
-				if hit.Source != "client" && hit.Source != "resource" {
+				if hit.Source != "client" && hit.Source != "resource" && hit.Source != "recovery" {
 					p.Factors = append(p.Factors, hit)
 				}
 			}

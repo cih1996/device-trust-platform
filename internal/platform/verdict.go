@@ -10,21 +10,22 @@ import (
 // A verdict is the server's assessment of one device for the business backend.
 // It is read with the app key; the app itself never sees it.
 type Verdict struct {
-	ReportID      string        `json:"reportId"`
-	DeviceID      string        `json:"deviceId"`
-	LinkID        string        `json:"linkId,omitempty"`
-	KeyStatus     string        `json:"keyStatus"`
-	RiskScore     int           `json:"riskScore"`
-	RiskLevel     string        `json:"riskLevel"`
-	EnvScore      int           `json:"envScore"`
-	BusinessScore int           `json:"businessScore"`
-	Factors       []RuleHit     `json:"factors"`
-	App           AppIntegrity  `json:"app"`
-	Linked        LinkedSummary `json:"linked"`
-	LAN           LANSummary    `json:"lan"`
-	ObservedIP    string        `json:"observedIp"`
-	Region        *IPRegion     `json:"region,omitempty"`
-	ReportedAt    time.Time     `json:"reportedAt"`
+	ReportID      string          `json:"reportId"`
+	DeviceID      string          `json:"deviceId"`
+	LinkID        string          `json:"linkId,omitempty"`
+	KeyStatus     string          `json:"keyStatus"`
+	RiskScore     int             `json:"riskScore"`
+	RiskLevel     string          `json:"riskLevel"`
+	EnvScore      int             `json:"envScore"`
+	BusinessScore int             `json:"businessScore"`
+	Factors       []RuleHit       `json:"factors"`
+	Recovery      *ReportRecovery `json:"recovery,omitempty"`
+	App           AppIntegrity    `json:"app"`
+	Linked        LinkedSummary   `json:"linked"`
+	LAN           LANSummary      `json:"lan"`
+	ObservedIP    string          `json:"observedIp"`
+	Region        *IPRegion       `json:"region,omitempty"`
+	ReportedAt    time.Time       `json:"reportedAt"`
 }
 
 // AppIntegrity says whether the reporting app is the one registered.
@@ -185,16 +186,17 @@ func (s *Server) verdict(a App, report Report) (Verdict, error) {
 	for _, hit := range v.Factors {
 		v.EnvScore += hit.Points
 	}
-	v.EnvScore = min(v.EnvScore, 100)
+	v.EnvScore = max(min(v.EnvScore, 100), 0)
+	v.Recovery = report.Recovery
 	v.BusinessScore = self.BusinessScore
 	if self.peakEvent != nil {
 		for _, hit := range self.peakEvent.Hits {
-			if hit.Source != "client" && hit.Source != "resource" {
+			if hit.Source != "client" && hit.Source != "resource" && hit.Source != "recovery" {
 				v.Factors = append(v.Factors, hit)
 			}
 		}
 	}
-	v.RiskScore = max(v.EnvScore, v.BusinessScore)
+	v.RiskScore = min(v.EnvScore+v.BusinessScore, 100)
 	v.RiskLevel = riskLevel(v.RiskScore)
 	if report.Resources != nil {
 		v.Region = report.Resources.IP

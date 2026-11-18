@@ -217,14 +217,12 @@ func evaluateBusiness(e *Event, r Report, history []Event, outcomes []Outcome, p
 			add(30, "payment_chargeback_history", "outcome", chargebacks, 1, 30*24*time.Hour)
 		}
 	}
-	for _, hit := range resourceHits(r) {
+	for _, hit := range append(resourceHits(r), recoveryHit(r)...) {
 		e.Score += hit.Points
 		e.Reasons = append(e.Reasons, hit.Code)
 		e.Hits = append(e.Hits, hit)
 	}
-	if e.Score > 100 {
-		e.Score = 100
-	}
+	e.Score = max(min(e.Score, 100), 0)
 	e.Decision = "observe"
 	e.Action = "observe"
 	if e.Score >= p.ReviewScore {
@@ -233,7 +231,7 @@ func evaluateBusiness(e *Event, r Report, history []Event, outcomes []Outcome, p
 	}
 	businessDimensions := map[string]bool{}
 	for _, hit := range e.Hits {
-		if hit.Source != "client" && hit.Source != "resource" {
+		if hit.Source != "client" && hit.Source != "resource" && hit.Source != "recovery" {
 			businessDimensions[hit.Dimension] = true
 		}
 	}

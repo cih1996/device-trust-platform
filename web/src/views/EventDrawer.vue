@@ -4,7 +4,7 @@ import { api } from '../api.js'
 import { href } from '../router.js'
 import { appId, appName, changed, can } from '../store.js'
 import { fullTime, levelNames } from '../format.js'
-import { sceneNames, actionNames, reviewNames, statusNames, reasonName, sourceNames, fieldNames, outcomeNames } from '../risk-display.js'
+import { sceneNames, actionNames, reviewNames, statusNames, reasonName, sourceNames, fieldNames, outcomeNames, signed } from '../risk-display.js'
 import ScoreRing from '../components/ScoreRing.vue'
 import LevelTag from '../components/LevelTag.vue'
 import ResourcePanel from '../components/ResourcePanel.vue'
@@ -92,7 +92,7 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKey))
         <div>
           <div class="section-title">命中线索 <small>阈值：核验 {{ e.policy.reviewScore }} · 暂缓 {{ e.policy.holdScore }}</small></div>
           <div v-for="(h, i) in e.hits" :key="i" class="factor">
-            <span>{{ reasonName(h.code) }}</span><span class="pts">+{{ h.points }}</span>
+            <span>{{ reasonName(h.code) }}</span><span class="pts">{{ signed(h.points) }}</span>
             <small>{{ sourceNames[h.source] || h.source }}<template v-if="h.threshold"> · 观测 {{ h.observed }} / 阈值 {{ h.threshold }}</template></small>
           </div>
           <p v-if="!e.hits.length" class="muted" style="margin:0">未命中规则</p>

@@ -419,6 +419,10 @@ func (s *Server) secure(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
+	if err = s.applyRecovery(&report); err != nil {
+		fail(w, 500, err)
+		return
+	}
 	if err = s.Store.create("reports", report.ID, report); errors.Is(err, os.ErrExist) {
 		var old Report
 		if err = s.Store.get("reports", report.ID, &old); err != nil {

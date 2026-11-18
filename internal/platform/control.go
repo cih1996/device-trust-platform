@@ -101,6 +101,12 @@ func (s *Server) review(w http.ResponseWriter, r *http.Request, eventID string) 
 		fail(w, 500, err)
 		return
 	}
+	if review.Label == "fraud" {
+		if err := s.resetRecovery(e.AppID, e.InstallationID, "人工审核标记欺诈"); err != nil {
+			fail(w, 500, err)
+			return
+		}
+	}
 	reply(w, 201, review)
 }
 func (s *Server) outcome(w http.ResponseWriter, r *http.Request) {
@@ -160,6 +166,8 @@ func (s *Server) outcome(w http.ResponseWriter, r *http.Request) {
 		}
 		reply(w, 200, old)
 	} else if err != nil {
+		fail(w, 500, err)
+	} else if err = s.chargebackReset(event, result); err != nil {
 		fail(w, 500, err)
 	} else {
 		reply(w, 201, result)

@@ -30,6 +30,7 @@ type Report struct {
 	ObservedIP     string              `json:"observedIp"`
 	ReceivedAt     time.Time           `json:"receivedAt"`
 	Proof          *ReportProof        `json:"proof,omitempty"`
+	Recovery       *ReportRecovery     `json:"recovery,omitempty"`
 }
 type Event struct {
 	Resources      *ResourceAssessment `json:"resources,omitempty"`

@@ -140,6 +140,7 @@ POST /v1/challenges
 | app.signer | `matched` 签名一致；`mismatch` 签名不符（疑似重打包）；`unknown` 未上报；`unconfigured` 工作台未填写证书 |
 | app.attestation | `tee` / `strongbox`：硬件证明确认包名、签名且启动链锁定；`none`：没有通过 |
 | app.issue | 硬件证明未通过的原因：`boot_unlocked`、`app_mismatch`、`revoked`、`unverified`、`keystore_failed`（设备 Keystore 无法生成证明，SDK 改用无证明密钥登记；仅在未开启“要求硬件证明”时出现） |
+| recovery | 良好使用恢复：goodDays 已积累的良好使用天数，discount 本次减免的分数（见 6.4） |
 | linked | 这台手机在你其他 App 中的设备数、涉及应用数、其中最高风险分和高风险设备数 |
 | lan | 24 小时内与它处于同一局域网的其他手机数（跨你的所有 App）；`adbPeers` 为 SDK 探测到开放 ADB 无线调试的同网设备数 |
 
@@ -252,6 +253,19 @@ SDK 0.7.4 起上报 `lan`：Wi-Fi / 有线网络（包括被系统标成移动�
 - `DeviceTrust.Options` 的 `includeAndroidId` 同时控制 ANDROID_ID 和 Widevine ID 摘要；关闭后只能靠第 3 种方式认出重装。
 - 只对 0.7.6 起的新登记生效；之前已经分裂的历史 deviceId 不会被合并。工作台设备详情“应用与签名”页可以看到每次登记的密钥和认出依据。
 
+## 6.4 良好使用恢复
+
+环境类、上下文类的软风险，会随设备的良好使用逐步减分；Root、调试、自动化等硬风险始终全额计分。
+
+- 软风险
+  - 网络类：机房出口、出口不在 SIM 所属地区、HTTP 代理、VPN、网络与定位地区不一致、基站与宽带出口地区不一致、SIM 与注册网络矛盾、移动数据出口运营商不符、疑似 AP 隔离。良好使用满 7 天后可全部免除。
+  - 聚集类：同局域网设备、局域网设备聚集、同网设备开放 ADB、同基站设备聚集。最多减半，工作室设备养得再久也不会降到 0。
+- 良好使用日：按北京时间的自然日计算。当天有上报，上报中没有硬风险，也没有业务规则命中、人工欺诈标记或支付拒付，这一天才算数。同一天上报多次只算 1 天；当天的上报只享受之前已积累天数的减免。
+- 积累 N 天后，软风险减免 N/7，第 7 天封顶。30 天前的良好使用日不再计入。
+- 清零：出现任何硬风险、业务规则命中、人工审核标记欺诈或支付拒付时，积累的天数清零，当天也不算良好使用日。
+- 减免在每次上报时计算，记录在这份报告上。减免以 `good_standing`（负分）出现在 factors 里，verdict 返回 `recovery: {goodDays, discount}`；业务事件也按减免后的分数判定。
+- 平台没有后台巡检任务，设备只要有上报就会刷新状态。建议 App 冷启动时登记一次，回到前台时如果距上次上报超过 30 分钟，再上报一次。
+
 ## 7. 其他语言示例
 
 Go 可以直接使用 `pkg/businessguard`：
@@ -335,6 +349,7 @@ const verdict = await response.json()
 | lan_device_cluster | 24 小时内同一局域网 ≥ 5 台手机 | 20 |
 | lan_adb_peers | 同局域网设备开放 ADB 无线调试端口 5555 | 30 |
 | linked_risk_elsewhere | 同一台手机在其他团队的应用中最近 30 天被评为高风险（该加分本身不会再传给其他团队） | 20 |
+| good_standing | 良好使用恢复：软风险随良好使用天数减免（见 6.4），负分 | −(0–100) |
 | device_identity_clone / device_identifier_changed / frequent_reinstall | 设备标识被复制到硬件不同的设备 / 同一设备的标识被修改 / 24 小时内重装 ≥ 3 次 | 30 / 20 / 20 |
 | location_jump | 同一手机两次定位间的速度超过 900 km/h（且距离超过 100 km） | 25 |
 | mock_location / cell_gps_mismatch / ip_gps_region_mismatch | 系统标记模拟定位 / 定位与注册基站相距超过 max(3 倍覆盖半径, 20 km) / 网络与定位区域不一致 | 20 / 25 / 10 |

@@ -433,7 +433,10 @@ func (s *Server) createEvent(w http.ResponseWriter, input eventInput, a App, id 
 	e.DeviceID = report.DeviceID
 	e.Resources = report.Resources
 	evaluateBusiness(&e, report, history, outcomes, p)
-	if err = s.Store.create("events", e.ID, e); errors.Is(err, os.ErrExist) {
+	if err = s.Store.create("events", e.ID, e); err == nil && businessPoints(e) > 0 {
+		err = s.resetRecovery(e.AppID, e.InstallationID, "业务规则命中")
+	}
+	if errors.Is(err, os.ErrExist) {
 		var saved Event
 		if err = s.Store.get("events", id, &saved); err != nil {
 			fail(w, 500, err)
