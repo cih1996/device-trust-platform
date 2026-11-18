@@ -22,7 +22,7 @@ final class DeviceTrustTests: XCTestCase {
         let sigLength = Int(frame[end]) << 8 | Int(frame[end + 1])
         XCTAssertEqual(frame.count, end + 2 + sigLength)
         let signature = try P256.Signing.ECDSASignature(derRepresentation: frame[(end + 2)...])
-        let public = try P256.Signing.PublicKey(derRepresentation: try key.spki)
-        XCTAssertTrue(public.isValidSignature(signature, for: frame[..<end]))
+        let verifier = try P256.Signing.PublicKey(derRepresentation: try key.spki)
+        XCTAssertTrue(verifier.isValidSignature(signature, for: frame[..<end]))
     }
 }
