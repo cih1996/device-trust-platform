@@ -1,0 +1,34 @@
+name: DeviceTrustSample
+options:
+  deploymentTarget:
+    iOS: "15.0"
+packages:
+  DeviceTrust:
+    path: ..
+targets:
+  DeviceTrustSample:
+    type: application
+    platform: iOS
+    sources: [Sources]
+    dependencies:
+      - package: DeviceTrust
+    entitlements:
+      path: Sources/Sample.entitlements
+      properties:
+        com.apple.developer.devicecheck.appattest-environment: development
+    info:
+      path: Sources/Info.plist
+      properties:
+        CFBundleDisplayName: 知衡体验
+        UILaunchScreen: {}
+        UISupportedInterfaceOrientations: [UIInterfaceOrientationPortrait]
+        DTPDemoPassword: $(DTP_DEMO_PASSWORD)
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.devicetrust.sample.dev
+        DEVELOPMENT_TEAM: 335JAYJJ85
+        CODE_SIGN_STYLE: Automatic
+        MARKETING_VERSION: 0.1.0
+        CURRENT_PROJECT_VERSION: 1
+        SWIFT_VERSION: 5.0
+        DTP_DEMO_PASSWORD: ""

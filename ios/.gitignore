@@ -1,0 +1,4 @@
+Sample/*.xcodeproj
+.build/
+.swiftpm/
+build/
