@@ -39,6 +39,8 @@ type RuleHit struct {
 	Observed      int    `json:"observed,omitempty"`
 	Threshold     int    `json:"threshold,omitempty"`
 	WindowSeconds int    `json:"windowSeconds,omitempty"`
+	// Label is the display name, filled in API responses only.
+	Label string `json:"label,omitempty"`
 }
 
 func sceneFor(kind string) string {

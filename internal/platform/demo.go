@@ -124,6 +124,7 @@ func (d *DemoBusiness) Handler() http.Handler {
 	mux.HandleFunc("POST /prepare", d.prepare)
 	mux.HandleFunc("POST /complete", d.complete)
 	mux.HandleFunc("POST /device/prepare", d.prepareDevice)
+	mux.HandleFunc("POST /device/risk", d.deviceRisk)
 	mux.HandleFunc("GET /health", func(w http.ResponseWriter, r *http.Request) { reply(w, 200, map[string]string{"status": "ok"}) })
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Cache-Control", "no-store")
@@ -293,7 +294,7 @@ func (d *DemoBusiness) complete(w http.ResponseWriter, r *http.Request) {
 				State string `json:"state"`
 			}
 			if json.Unmarshal([]byte(upstream.Body), &state) == nil && (state.State == "verify" || state.State == "hold") {
-				reply(w, 200, map[string]any{"state": state.State, "eventId": pending.EventID, "score": event.Score, "reasons": event.Reasons})
+				reply(w, 200, map[string]any{"state": state.State, "eventId": pending.EventID, "score": event.Score, "reasons": event.Reasons, "action": event.Action, "hits": labelHits(event.Hits)})
 				return
 			}
 		}
@@ -325,7 +326,7 @@ func (d *DemoBusiness) complete(w http.ResponseWriter, r *http.Request) {
 		fail(w, 502, err)
 		return
 	}
-	reply(w, 200, map[string]any{"state": "completed", "eventId": pending.EventID, "score": event.Score, "reasons": event.Reasons, "operation": operation})
+	reply(w, 200, map[string]any{"state": "completed", "eventId": pending.EventID, "score": event.Score, "reasons": event.Reasons, "action": event.Action, "hits": labelHits(event.Hits), "operation": operation})
 }
 
 // InitializeDemo creates new, isolated credentials once. Existing state is read
@@ -369,4 +370,27 @@ func InitializeDemo(dir, caFile, apkSigner string) (DemoConfig, error) {
 		return config, err
 	}
 	return config, nil
+}
+
+// deviceRisk shows the experience app the platform's view of its device:
+// risk score, level and the factors behind it. A real business keeps this
+// on its server; the demo returns it so visitors can see the scoring.
+func (d *DemoBusiness) deviceRisk(w http.ResponseWriter, r *http.Request) {
+	var input struct {
+		DeviceID string `json:"deviceId"`
+	}
+	if err := decode(w, r, &input); err != nil {
+		fail(w, 400, err)
+		return
+	}
+	if len(input.DeviceID) < 16 || len(input.DeviceID) > 128 {
+		fail(w, 400, errors.New("device ID required"))
+		return
+	}
+	var verdict Verdict
+	if err := d.call("/v1/devices/query", map[string]string{"appId": d.Config.AppID, "deviceId": input.DeviceID}, &verdict); err != nil {
+		fail(w, 502, err)
+		return
+	}
+	reply(w, 200, verdict)
 }

@@ -196,6 +196,7 @@ func (s *Server) verdict(a App, report Report) (Verdict, error) {
 			}
 		}
 	}
+	v.Factors = labelHits(v.Factors)
 	v.RiskScore = min(v.EnvScore+v.BusinessScore, 100)
 	v.RiskLevel = riskLevel(v.RiskScore)
 	if report.Resources != nil {

@@ -271,3 +271,10 @@ func TestLegacyKSUMountMarkerIgnored(t *testing.T) {
 		t.Fatal(got)
 	}
 }
+
+func TestRuleLabels(t *testing.T) {
+	hits := labelHits([]RuleHit{{Code: "debugger"}, {Code: "good_standing"}, {Code: "unknown_code"}})
+	if hits[0].Label != "正在调试" || hits[1].Label != "良好使用恢复" || hits[2].Label != "" {
+		t.Fatal(hits)
+	}
+}

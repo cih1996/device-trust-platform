@@ -240,3 +240,40 @@ func TestIOSEnrollmentAssertionsAndPackage(t *testing.T) {
 	// The development key no longer passes once development is not accepted.
 	request(t, h, "POST", "/v1/challenges", "secret", map[string]any{"appId": "app", "eventId": "after-policy", "accountId": "a", "type": "login", "keyId": keyID}, 403)
 }
+
+func TestIOSIntegrityRules(t *testing.T) {
+	av := func(v any) Signal { return Signal{Status: "available", Value: v} }
+	codes := func(signals map[string]Signal) map[string]int {
+		signals["platform"] = av("ios")
+		out := map[string]int{}
+		for _, hit := range environmentHits(Report{Signals: signals}) {
+			out[hit.Code] = hit.Points
+		}
+		return out
+	}
+	clean := codes(map[string]Signal{
+		"jailbreak":        av(map[string]any{"nativePaths": []any{}, "foundationPaths": []any{}, "sandboxEscape": false}),
+		"injection":        av(map[string]any{"hookImages": []any{}, "dyldInsert": false, "fridaPort": false}),
+		"iosAccessibility": av(map[string]any{"assistiveTouch": true, "switchControl": false}),
+		"peripherals":      av(map[string]any{"keyboard": false, "mice": 0.0}),
+		"application":      av(map[string]any{"installer": "provisioned", "cryptid": 0.0}),
+	})
+	if len(clean) != 0 {
+		t.Fatal("clean iPhone scored", clean)
+	}
+	bad := codes(map[string]Signal{
+		"jailbreak":        av(map[string]any{"nativePaths": []any{"/var/jb"}, "foundationPaths": []any{}, "sandboxEscape": false}),
+		"injection":        av(map[string]any{"hookImages": []any{"/usr/lib/frida-agent.dylib"}, "dyldInsert": false, "fridaPort": true}),
+		"iosAccessibility": av(map[string]any{"switchControl": true}),
+		"peripherals":      av(map[string]any{"keyboard": false, "mice": 1.0}),
+		"application":      av(map[string]any{"installer": "appstore", "cryptid": 0.0}),
+	})
+	for _, code := range []string{"ios_jailbreak", "ios_layer_mismatch", "ios_injected_library", "frida_default_port", "ios_switch_control", "ios_hid_input", "ios_binary_decrypted"} {
+		if bad[code] == 0 {
+			t.Error("missing", code, bad)
+		}
+		if ruleNames[code] == "" {
+			t.Error("no name for", code)
+		}
+	}
+}

@@ -94,6 +94,7 @@ func evaluateDevice(e *Event, r Report, history []Event, add func(int, string)) 
 		}
 	}
 	runtimeIntegrity(r, add)
+	iosIntegrity(r, add)
 	accounts := map[string]bool{e.AccountID: true}
 	count := 0
 	for _, old := range history {
@@ -179,4 +180,51 @@ func runtimeIntegrity(r Report, add func(int, string)) {
 	}
 	environmentConsistency(r, add)
 	toolingSignals(r, add)
+}
+
+// iosIntegrity scores the iOS SDK's runtime signals. Assistive features that
+// many people use daily (AssistiveTouch, VoiceOver) are reported but not scored.
+func iosIntegrity(r Report, add func(int, string)) {
+	if stringSignal(r, "platform") != "ios" {
+		return
+	}
+	list := func(m map[string]any, key string) []any { v, _ := m[key].([]any); return v }
+	if jb := signalMap(r, "jailbreak"); jb != nil {
+		native, foundation := list(jb, "nativePaths"), list(jb, "foundationPaths")
+		escape, _ := jb["sandboxEscape"].(bool)
+		if len(native) > 0 || len(foundation) > 0 || escape {
+			add(60, "ios_jailbreak")
+		}
+		// The same files read through libc and Foundation disagree: one layer is hooked.
+		if len(native) != len(foundation) {
+			add(40, "ios_layer_mismatch")
+		}
+	}
+	if in := signalMap(r, "injection"); in != nil {
+		insert, _ := in["dyldInsert"].(bool)
+		if len(list(in, "hookImages")) > 0 || insert {
+			add(60, "ios_injected_library")
+		}
+		if frida, _ := in["fridaPort"].(bool); frida {
+			add(30, "frida_default_port")
+		}
+	}
+	if a := signalMap(r, "iosAccessibility"); a != nil {
+		if on, _ := a["switchControl"].(bool); on {
+			add(20, "ios_switch_control")
+		}
+	}
+	if p := signalMap(r, "peripherals"); p != nil {
+		keyboard, _ := p["keyboard"].(bool)
+		mice, _ := p["mice"].(float64)
+		if keyboard || mice > 0 {
+			add(15, "ios_hid_input")
+		}
+	}
+	// An App Store build whose executable is no longer encrypted was dumped and re-signed.
+	if app := signalMap(r, "application"); app != nil && app["installer"] == "appstore" {
+		if cryptid, ok := app["cryptid"].(float64); ok && cryptid == 0 {
+			add(50, "ios_binary_decrypted")
+		}
+	}
 }
