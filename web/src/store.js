@@ -1,6 +1,6 @@
 import { ref, computed, watch } from 'vue'
 import { api } from './api.js'
-import { route } from './router.js'
+import { route, setQuery } from './router.js'
 
 const APP_KEY = 'dtp_selected_app'
 function remembered() {
@@ -21,6 +21,12 @@ export const appName = id => apps.value.find(a => a.id === id)?.name || id
 
 export async function loadApps() {
   apps.value = await api('apps')
+  // A linked or remembered app this account cannot see (chosen under another
+  // account in this browser) falls back to all apps.
+  if (appId.value && !apps.value.some(a => a.id === appId.value)) {
+    try { localStorage.setItem(APP_KEY, '') } catch {}
+    setQuery({ app: '' })
+  }
 }
 
 // The signed-in account: role is platform | admin | analyst | viewer.
