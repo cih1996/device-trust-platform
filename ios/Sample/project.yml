@@ -12,10 +12,9 @@ targets:
     sources: [Sources]
     dependencies:
       - package: DeviceTrust
-    entitlements:
-      path: Sources/Sample.entitlements
-      properties:
-        com.apple.developer.devicecheck.appattest-environment: development
+    # App Attest needs a paid team: add the entitlement
+    # com.apple.developer.devicecheck.appattest-environment there. Without it
+    # the SDK enrolls a signature-only key and reports why.
     info:
       path: Sources/Info.plist
       properties:
