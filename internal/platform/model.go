@@ -87,6 +87,10 @@ func evaluateDevice(e *Event, r Report, history []Event, add func(int, string)) 
 			add(40, "attestation_revoked")
 		case "boot_unlocked":
 			add(25, "attested_boot_unlocked")
+		case "counter_replay":
+			add(60, "app_attest_counter_replay")
+		case "assertion_invalid":
+			add(40, "app_attest_assertion_invalid")
 		}
 	}
 	runtimeIntegrity(r, add)

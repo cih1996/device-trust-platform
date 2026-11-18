@@ -37,6 +37,8 @@ func attestationIssue(err error) string {
 		return "app_mismatch"
 	case errors.Is(err, errAttestRevoked):
 		return "revoked"
+	case errors.Is(err, errAttestDevelopment):
+		return "development_env"
 	}
 	return "unverified"
 }
@@ -67,6 +69,9 @@ type hardwareProof struct {
 	OSPatch    int       `json:"osPatch"`
 	VerifiedAt time.Time `json:"verifiedAt"`
 	RootSHA256 string    `json:"rootSha256"`
+	// App Attest: the attested "TEAMID.bundle" and production/development.
+	AppIdentity string `json:"appIdentity,omitempty"`
+	Environment string `json:"environment,omitempty"`
 }
 type keyDescription struct {
 	Version     int

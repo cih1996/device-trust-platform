@@ -30,7 +30,7 @@ type Verdict struct {
 
 // AppIntegrity says whether the reporting app is the one registered.
 // signer: matched, mismatch, unknown (not reported) or unconfigured (no allowlist).
-// attestation: tee or strongbox when the hardware vouched for package and signer, else none.
+// attestation: tee, strongbox or app_attest when the hardware vouched for the app, else none.
 type AppIntegrity struct {
 	Package     string `json:"package"`
 	Signer      string `json:"signer"`
@@ -237,7 +237,7 @@ func appIntegrity(r Report) AppIntegrity {
 		}
 	}
 	if r.Proof != nil {
-		if r.Proof.Level == "tee" || r.Proof.Level == "strongbox" {
+		if hardwareLevel(r.Proof.Level) {
 			result.Attestation = r.Proof.Level
 		}
 		result.Issue = r.Proof.Issue

@@ -7,7 +7,7 @@ import { fullTime } from '../format.js'
 import Icon from '../components/Icon.vue'
 
 const app = computed(() => apps.value.find(a => a.id === route.id))
-const policy = ref(null), security = ref(null), signers = ref('')
+const policy = ref(null), security = ref(null), signers = ref(''), iosIds = ref('')
 const saving = ref(''), saved = ref(''), message = ref(''), newKey = ref('')
 
 watch(app, a => {
@@ -15,6 +15,7 @@ watch(app, a => {
   policy.value = { ...a.policy }
   security.value = { ...a.security }
   signers.value = a.security.signingDigests.join('\n')
+  iosIds.value = (a.security.iosAppIds || []).join('\n')
 }, { immediate: true })
 
 const thresholds = [
@@ -45,7 +46,7 @@ async function save(kind, fn) {
   }
 }
 const savePolicy = () => save('policy', () => api('apps/' + app.value.id + '/policy', 'PUT', policy.value))
-const saveSecurity = () => save('security', () => api('apps/' + app.value.id + '/security', 'PUT', { ...security.value, signingDigests: signers.value.split(/\s+/).filter(Boolean) }))
+const saveSecurity = () => save('security', () => api('apps/' + app.value.id + '/security', 'PUT', { ...security.value, signingDigests: signers.value.split(/\s+/).filter(Boolean), iosAppIds: iosIds.value.split(/\s+/).filter(Boolean) }))
 function rotate() {
   if (!window.confirm('重置「' + app.value.name + '」的应用密钥？原密钥会立即失效，业务服务端需要同步更新。')) return
   save('key', async () => { newKey.value = (await api('apps/' + app.value.id + '/rotate-key', 'POST', {})).key })
@@ -109,12 +110,14 @@ function rotate() {
         <div class="card-head"><h2>接入保护</h2></div>
         <div class="card-body stack">
           <div class="stack" style="gap:8px">
-            <label class="check"><input type="checkbox" v-model="security.requireSignedReports"><span>签名上报<small>设备上报必须由 Keystore 密钥签名，拒绝未签名数据</small></span></label>
-            <label class="check"><input type="checkbox" v-model="security.requireHardware"><span>硬件密钥验证<small>要求 TEE / StrongBox 硬件证明，未通过的设备无法登记</small></span></label>
+            <label class="check"><input type="checkbox" v-model="security.requireSignedReports"><span>签名上报<small>设备上报必须由硬件密钥（Keystore / Secure Enclave）签名，拒绝未签名数据</small></span></label>
+            <label class="check"><input type="checkbox" v-model="security.requireHardware"><span>硬件密钥验证<small>要求 TEE / StrongBox 或 App Attest 硬件证明，未通过的设备无法登记</small></span></label>
+            <label class="check"><input type="checkbox" v-model="security.allowAppAttestDevelopment"><span>接受 iOS 开发版证明<small>Xcode 开发签名的测试包；正式上线后建议关闭</small></span></label>
             <label class="check"><input type="checkbox" v-model="security.requireRequestBinding"><span>业务请求绑定<small>上报需携带业务请求摘要，防止设备数据被挪用到其他请求</small></span></label>
           </div>
           <div class="form-grid">
             <label class="field">应用证书 SHA-256 指纹<textarea v-model="signers" rows="3" placeholder="每行一个；留空表示不校验" class="mono"></textarea></label>
+            <label class="field">iOS App ID<textarea v-model="iosIds" rows="3" placeholder="团队ID.包名，每行一个，例如 ABCDE12345.com.example.app" class="mono"></textarea></label>
             <label class="field">硬件证明有效期（小时）<input type="number" v-model.number="security.maxEnrollmentHours" min="1" max="168" required></label>
           </div>
           <div class="row-gap"><button v-if="can('admin')" class="primary" :disabled="saving === 'security'">保存接入保护</button><span v-if="saved === 'security'" class="muted">已保存</span></div>

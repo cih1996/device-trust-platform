@@ -27,7 +27,7 @@ async function load() {
 }
 watch(() => props.id, load, { immediate: true })
 
-const proof = computed(() => (!e.value?.reportProof ? '未签名' : ['tee', 'strongbox'].includes(e.value.reportProof.level) ? '硬件证明通过' : '签名已验证'))
+const proof = computed(() => (!e.value?.reportProof ? '未签名' : ['tee', 'strongbox', 'app_attest'].includes(e.value.reportProof.level) ? '硬件证明通过' : '签名已验证'))
 const canResolve = computed(() => e.value && e.value.mode === 'enforce' && e.value.action !== 'observe' && !e.value.resolution)
 const context = computed(() => {
   const c = e.value?.context || {}

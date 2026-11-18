@@ -127,9 +127,11 @@ function display(value) {
   return String(value)
 }
 const purpose = v => ({ device_init: '首次登记', device_refresh: '启动更新', register: '注册场景', reward: '营销场景', payment: '支付场景' }[v] || '业务上报')
-const proof = v => (!v ? '未签名' : v.level === 'tee' || v.level === 'strongbox' ? '硬件证明通过' : '签名已验证')
-const attestIssue = { boot_unlocked: 'Bootloader 未锁定', app_mismatch: '包名或签名不符', revoked: '证明证书已吊销', unverified: '未通过', keystore_failed: '设备无法生成证明' }
-const attestation = v => (!v ? '未签名' : v.level === 'tee' || v.level === 'strongbox' ? '通过（' + v.level.toUpperCase() + '）' : attestIssue[v.attestationIssue] || '未提交证明')
+const hardware = v => ['tee', 'strongbox', 'app_attest'].includes(v?.level)
+const levelLabel = { tee: 'TEE', strongbox: 'StrongBox', app_attest: 'App Attest' }
+const proof = v => (!v ? '未签名' : hardware(v) ? '硬件证明通过' : '签名已验证')
+const attestIssue = { boot_unlocked: 'Bootloader 未锁定', app_mismatch: '包名或签名不符', revoked: '证明证书已吊销', unverified: '未通过', keystore_failed: '设备无法生成证明', development_env: '开发环境证明', counter_replay: '证明计数回退（疑似密钥复制）', assertion_invalid: '证明断言无效' }
+const attestation = v => (!v ? '未签名' : hardware(v) ? '通过（' + levelLabel[v.level] + '）' : attestIssue[v.attestationIssue] || '未提交证明')
 const signerCheck = computed(() => {
   const s = r.value?.signals?.expectedSigner
   if (!s) return '未配置应用证书'

@@ -5,15 +5,18 @@ import (
 	"crypto/ecdh"
 	"crypto/ecdsa"
 	"crypto/rand"
+	"crypto/sha256"
 	"crypto/x509"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"net"
 	"net/http"
 	"os"
 	"reflect"
+	"slices"
 	"strings"
 	"time"
 )
@@ -25,13 +28,21 @@ type AppSecurity struct {
 	SigningDigests        []string `json:"signingDigests"`
 	MinimumOSPatch        int      `json:"minimumOsPatch"`
 	MaxEnrollmentHours    int      `json:"maxEnrollmentHours"`
+	// IOSAppIDs are "TEAMID.bundle.id" values App Attest must name.
+	IOSAppIDs                 []string `json:"iosAppIds"`
+	AllowAppAttestDevelopment bool     `json:"allowAppAttestDevelopment"`
+}
+
+// hardwareLevel reports whether a proof level is a verified hardware attestation.
+func hardwareLevel(level string) bool {
+	return level == "tee" || level == "strongbox" || level == "app_attest"
 }
 
 var errEnrollmentExpired = errors.New("device enrollment expired; enroll a new key")
 var errHardwareUpgrade = errors.New("hardware-backed attestation required")
 
 func (s *Server) security(appID string) (AppSecurity, error) {
-	result := AppSecurity{MaxEnrollmentHours: 24, SigningDigests: []string{}}
+	result := AppSecurity{MaxEnrollmentHours: 24, SigningDigests: []string{}, IOSAppIDs: []string{}}
 	err := s.Store.get("security", appID, &result)
 	if errors.Is(err, os.ErrNotExist) {
 		return result, nil
@@ -71,8 +82,14 @@ func (s *Server) saveSecurity(w http.ResponseWriter, r *http.Request, appID stri
 		}
 		config.SigningDigests[i] = value
 	}
-	if config.RequireHardware && (!config.RequireSignedReports || len(config.SigningDigests) == 0) {
-		fail(w, 400, errors.New("硬件证明需同时启用签名上报并设置应用证书"))
+	ids, err := normalizeIOSAppIDs(config.IOSAppIDs)
+	if err != nil {
+		fail(w, 400, err)
+		return
+	}
+	config.IOSAppIDs = ids
+	if config.RequireHardware && (!config.RequireSignedReports || len(config.SigningDigests)+len(config.IOSAppIDs) == 0) {
+		fail(w, 400, errors.New("硬件证明需同时启用签名上报并设置应用证书或 iOS App ID"))
 		return
 	}
 	if err := s.Store.put("security", appID, config); err != nil {
@@ -111,7 +128,28 @@ type deviceKey struct {
 	EnrollmentChallenge string        `json:"enrollmentChallenge"`
 	EnrolledAt          time.Time     `json:"enrolledAt"`
 	Proof               hardwareProof `json:"proof"`
+	// iOS keys: the Secure Enclave key (SPKI) and its App Attest key.
+	Platform  string        `json:"platform,omitempty"`
+	PublicKey []byte        `json:"publicKey,omitempty"`
+	AppAttest *appAttestKey `json:"appAttest,omitempty"`
 }
+
+// signingKey is the public key that signs the device's frames.
+func (k deviceKey) signingKey() (*ecdsa.PublicKey, error) {
+	if k.Platform == "ios" {
+		return iosSigningKey(k.PublicKey)
+	}
+	certs, err := parseCertificateChain(k.Chain)
+	if err != nil {
+		return nil, err
+	}
+	public, ok := certs[0].PublicKey.(*ecdsa.PublicKey)
+	if !ok {
+		return nil, errors.New("device key is not ECDSA")
+	}
+	return public, nil
+}
+
 type enrollment struct {
 	KeyID       string        `json:"keyId"`
 	PayloadHash string        `json:"payloadHash"`
@@ -237,6 +275,21 @@ func (s *Server) activeKey(app App, id string, security AppSecurity) (deviceKey,
 		return key, hardwareProof{}, errEnrollmentExpired
 	}
 	proof := key.Proof
+	if proof.Level == "app_attest" {
+		// No revocation list for App Attest; re-check the app settings.
+		var err error
+		if !slices.Contains(security.IOSAppIDs, proof.AppIdentity) {
+			err = fmt.Errorf("%w: App ID no longer configured", errAttestApp)
+		} else if proof.Environment == "development" && !security.AllowAppAttestDevelopment {
+			err = errAttestDevelopment
+		}
+		if err != nil && security.RequireHardware {
+			return key, proof, err
+		}
+		if err != nil {
+			proof = hardwareProof{Level: "signature_only", Issue: attestationIssue(err), Error: err.Error(), VerifiedAt: time.Now().UTC()}
+		}
+	}
 	if proof.Level == "tee" || proof.Level == "strongbox" {
 		// Re-check against current revocations and app settings. Apps that do not
 		// require hardware keep the key and record why the proof no longer holds.
@@ -248,7 +301,7 @@ func (s *Server) activeKey(app App, id string, security AppSecurity) (deviceKey,
 			proof = hardwareProof{Level: "signature_only", Issue: attestationIssue(err), Error: err.Error(), VerifiedAt: time.Now().UTC()}
 		}
 	}
-	if security.RequireHardware && proof.Level != "tee" && proof.Level != "strongbox" {
+	if security.RequireHardware && !hardwareLevel(proof.Level) {
 		return key, proof, errHardwareUpgrade
 	}
 	return key, proof, nil
@@ -348,12 +401,12 @@ func (s *Server) secure(w http.ResponseWriter, r *http.Request) {
 		fail(w, 403, errors.New("challenge is bound to another enrollment"))
 		return
 	}
-	certs, err := parseCertificateChain(key.Chain)
+	signing, err := key.signingKey()
 	if err != nil {
 		fail(w, 500, err)
 		return
 	}
-	if err = frame.verify(certs[0].PublicKey.(*ecdsa.PublicKey)); err != nil {
+	if err = frame.verify(signing); err != nil {
 		fail(w, 403, err)
 		return
 	}
@@ -367,9 +420,24 @@ func (s *Server) secure(w http.ResponseWriter, r *http.Request) {
 		fail(w, 400, err)
 		return
 	}
-	if input.AppID != app.ID || input.Package != app.Package || len(input.Signals) == 0 {
+	packageOK := input.Package == app.Package || (key.Platform == "ios" && iosBundleAllowed(security, input.Package))
+	if input.AppID != app.ID || !packageOK || len(input.Signals) == 0 {
 		fail(w, 403, errors.New("report application or package mismatch"))
 		return
+	}
+	if key.AppAttest != nil && proof.Level == "app_attest" {
+		invalid, err := s.checkAssertion(key, challenge, input.AppAttest)
+		if err != nil {
+			fail(w, 500, err)
+			return
+		}
+		if invalid != nil && security.RequireHardware {
+			fail(w, 403, invalid)
+			return
+		}
+		if invalid != nil {
+			proof = hardwareProof{Level: "signature_only", Issue: assertionIssue(invalid), Error: invalid.Error(), VerifiedAt: time.Now().UTC()}
+		}
 	}
 	if err = validateSignals(input.Signals); err != nil {
 		fail(w, 400, err)
@@ -384,7 +452,7 @@ func (s *Server) secure(w http.ResponseWriter, r *http.Request) {
 		fail(w, 500, err)
 		return
 	}
-	report := Report{ID: digest("secure:" + challenge.ID), AppID: app.ID, InstallationID: "key:" + key.ID, Package: app.Package, Signals: input.Signals, ObservedIP: ip, ReceivedAt: time.Now().UTC(), Proof: &ReportProof{KeyID: key.ID, Level: proof.Level, Issue: proof.Issue, Error: proof.Error, ChallengeID: challenge.ID, EventID: challenge.EventID, PayloadHash: digest(string(payload)), VerifiedAt: time.Now().UTC(), EnrolledAt: key.Proof.VerifiedAt}}
+	report := Report{ID: digest("secure:" + challenge.ID), AppID: app.ID, InstallationID: "key:" + key.ID, Package: input.Package, Signals: input.Signals, ObservedIP: ip, ReceivedAt: time.Now().UTC(), Proof: &ReportProof{KeyID: key.ID, Level: proof.Level, Issue: proof.Issue, Error: proof.Error, ChallengeID: challenge.ID, EventID: challenge.EventID, PayloadHash: digest(string(payload)), VerifiedAt: time.Now().UTC(), EnrolledAt: key.Proof.VerifiedAt}}
 	registration, identityIssues, err := s.registerDevice(app.ID, key.ID, Report{Signals: input.Signals})
 	if err != nil {
 		fail(w, 500, err)
@@ -441,6 +509,23 @@ func (s *Server) secure(w http.ResponseWriter, r *http.Request) {
 	}
 	reply(w, 201, map[string]string{"reportId": report.ID, "deviceId": registration.DeviceID, "keyId": key.ID, "proofLevel": proof.Level})
 }
+
+// enrollInput is the decrypted payload of a key enrollment frame.
+type enrollInput struct {
+	// Android: the Keystore certificate chain.
+	Chain []string `json:"certificateChain"`
+	// Set by the SDK when the platform failed to attest and it enrolled an
+	// unattested key instead, which it only does if hardware is not required.
+	AttestationError string `json:"attestationError"`
+	// iOS: the Secure Enclave key (SPKI) and its App Attest attestation.
+	Platform  string `json:"platform"`
+	PublicKey []byte `json:"publicKey"`
+	AppAttest *struct {
+		KeyID       []byte `json:"keyId"`
+		Attestation []byte `json:"attestation"`
+	} `json:"appAttest"`
+}
+
 func (s *Server) enroll(w http.ResponseWriter, frame secureFrame, challenge storedChallenge, app App, security AppSecurity) {
 	if challenge.KeyID != "" {
 		fail(w, 403, errors.New("enrollment requires a new-key challenge"))
@@ -451,46 +536,26 @@ func (s *Server) enroll(w http.ResponseWriter, frame secureFrame, challenge stor
 		fail(w, 403, err)
 		return
 	}
-	var input struct {
-		Chain []string `json:"certificateChain"`
-		// Set by the SDK when the Keystore failed to attest and it enrolled an
-		// unattested key instead, which it only does if hardware is not required.
-		AttestationError string `json:"attestationError"`
-	}
+	var input enrollInput
 	if err = decodePayload(payload, &input); err != nil {
 		fail(w, 400, err)
 		return
 	}
-	certs, err := parseCertificateChain(input.Chain)
+	var key deviceKey
+	var status int
+	switch input.Platform {
+	case "":
+		key, status, err = s.androidKey(frame, challenge, app, security, input)
+	case "ios":
+		key, status, err = iosKey(frame, challenge, security, input)
+	default:
+		status, err = 400, errors.New("unsupported platform")
+	}
 	if err != nil {
-		fail(w, 400, err)
+		fail(w, status, err)
 		return
 	}
-	id := certificateKeyID(certs[0])
-	if id != frame.KeyID {
-		fail(w, 403, errors.New("enrollment key digest mismatch"))
-		return
-	}
-	if err = frame.verify(certs[0].PublicKey.(*ecdsa.PublicKey)); err != nil {
-		fail(w, 403, err)
-		return
-	}
-	// Every enrollment is checked against the attestation roots; only apps that
-	// require hardware reject a failure, the others keep it as evidence.
-	var proof hardwareProof
-	if input.AttestationError != "" {
-		if security.RequireHardware {
-			fail(w, 403, errors.New("device keystore attestation failed: "+input.AttestationError))
-			return
-		}
-		proof = hardwareProof{Level: "signature_only", Issue: "keystore_failed", Error: input.AttestationError, VerifiedAt: time.Now().UTC()}
-	} else if proof, err = s.Trust.verify(input.Chain, challenge.Nonce, app, security); err != nil {
-		if security.RequireHardware {
-			fail(w, 403, err)
-			return
-		}
-		proof = hardwareProof{Level: "signature_only", Issue: attestationIssue(err), Error: err.Error(), VerifiedAt: time.Now().UTC()}
-	}
+	id, proof := key.ID, key.Proof
 	accepted := enrollment{id, digest(string(payload)), proof}
 	if err = s.Store.create("enrollments", challenge.ID, accepted); errors.Is(err, os.ErrExist) {
 		var old enrollment
@@ -507,7 +572,7 @@ func (s *Server) enroll(w http.ResponseWriter, frame secureFrame, challenge stor
 		fail(w, 500, err)
 		return
 	}
-	key := deviceKey{id, app.ID, input.Chain, challenge.Nonce, challenge.ID, time.Now().UTC(), proof}
+	key.AppID, key.Nonce, key.EnrollmentChallenge, key.EnrolledAt, key.Proof = app.ID, challenge.Nonce, challenge.ID, time.Now().UTC(), proof
 	if err = s.Store.create("device-keys", app.ID+":"+id, key); err != nil && !errors.Is(err, os.ErrExist) {
 		fail(w, 500, err)
 		return
@@ -550,8 +615,88 @@ func (s *Server) validateReportBinding(report Report, input eventInput) error {
 	if challenge.AppID != input.AppID || challenge.EventID != input.BusinessID || challenge.AccountID != input.AccountID || challenge.Type != input.Type || challenge.ClientIP != input.ClientIP || !reflect.DeepEqual(challenge.Context, input.Context) {
 		return errors.New("report is bound to a different business request")
 	}
-	if security.RequireHardware && report.Proof.Level != "tee" && report.Proof.Level != "strongbox" {
+	if security.RequireHardware && !hardwareLevel(report.Proof.Level) {
 		return errors.New("hardware-backed report required")
 	}
 	return nil
+}
+
+// androidKey verifies a Keystore enrollment.
+func (s *Server) androidKey(frame secureFrame, challenge storedChallenge, app App, security AppSecurity, input enrollInput) (deviceKey, int, error) {
+	if len(input.PublicKey) > 0 || input.AppAttest != nil {
+		return deviceKey{}, 400, errors.New("iOS fields in an Android enrollment")
+	}
+	certs, err := parseCertificateChain(input.Chain)
+	if err != nil {
+		return deviceKey{}, 400, err
+	}
+	id := certificateKeyID(certs[0])
+	if id != frame.KeyID {
+		return deviceKey{}, 403, errors.New("enrollment key digest mismatch")
+	}
+	public, ok := certs[0].PublicKey.(*ecdsa.PublicKey)
+	if !ok {
+		return deviceKey{}, 400, errors.New("device key is not ECDSA")
+	}
+	if err = frame.verify(public); err != nil {
+		return deviceKey{}, 403, err
+	}
+	// Every enrollment is checked against the attestation roots; only apps that
+	// require hardware reject a failure, the others keep it as evidence.
+	var proof hardwareProof
+	if input.AttestationError != "" {
+		if security.RequireHardware {
+			return deviceKey{}, 403, errors.New("device keystore attestation failed: " + input.AttestationError)
+		}
+		proof = hardwareProof{Level: "signature_only", Issue: "keystore_failed", Error: input.AttestationError, VerifiedAt: time.Now().UTC()}
+	} else if proof, err = s.Trust.verify(input.Chain, challenge.Nonce, app, security); err != nil {
+		if security.RequireHardware {
+			return deviceKey{}, 403, err
+		}
+		proof = hardwareProof{Level: "signature_only", Issue: attestationIssue(err), Error: err.Error(), VerifiedAt: time.Now().UTC()}
+	}
+	return deviceKey{ID: id, Chain: input.Chain, Proof: proof}, 0, nil
+}
+
+// iosKey verifies a Secure Enclave enrollment and its App Attest attestation.
+func iosKey(frame secureFrame, challenge storedChallenge, security AppSecurity, input enrollInput) (deviceKey, int, error) {
+	if len(input.Chain) > 0 {
+		return deviceKey{}, 400, errors.New("certificate chain in an iOS enrollment")
+	}
+	public, err := iosSigningKey(input.PublicKey)
+	if err != nil {
+		return deviceKey{}, 400, err
+	}
+	sum := sha256.Sum256(input.PublicKey)
+	id := hex.EncodeToString(sum[:])
+	if id != frame.KeyID {
+		return deviceKey{}, 403, errors.New("enrollment key digest mismatch")
+	}
+	if err = frame.verify(public); err != nil {
+		return deviceKey{}, 403, err
+	}
+	key := deviceKey{ID: id, Platform: "ios", PublicKey: input.PublicKey}
+	switch {
+	case input.AttestationError != "" || input.AppAttest == nil:
+		reason := input.AttestationError
+		if reason == "" {
+			reason = "App Attest missing"
+		}
+		if security.RequireHardware {
+			return deviceKey{}, 403, errors.New("App Attest failed: " + reason)
+		}
+		key.Proof = hardwareProof{Level: "signature_only", Issue: "keystore_failed", Error: reason, VerifiedAt: time.Now().UTC()}
+	default:
+		attested, proof, err := verifyAppAttest(input.AppAttest.Attestation, input.AppAttest.KeyID, appAttestClientData(challenge.Nonce, input.PublicKey), security, time.Now().UTC())
+		if err != nil {
+			if security.RequireHardware {
+				return deviceKey{}, 403, err
+			}
+			proof = hardwareProof{Level: "signature_only", Issue: attestationIssue(err), Error: err.Error(), VerifiedAt: time.Now().UTC()}
+		} else {
+			key.AppAttest = &attested
+		}
+		key.Proof = proof
+	}
+	return key, 0, nil
 }

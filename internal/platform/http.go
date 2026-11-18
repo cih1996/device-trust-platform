@@ -298,6 +298,8 @@ type reportInput struct {
 	InstallationID string            `json:"installationId"`
 	Package        string            `json:"package"`
 	Signals        map[string]Signal `json:"signals"`
+	// AppAttest is an iOS App Attest assertion (CBOR) over the challenge.
+	AppAttest []byte `json:"appAttest,omitempty"`
 }
 
 func validateSignals(signals map[string]Signal) error {

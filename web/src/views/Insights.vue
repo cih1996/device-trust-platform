@@ -47,7 +47,7 @@ function toggle(dim, value) {
 
 const dims = computed(() => data.value?.dims || [])
 const dimIndex = computed(() => Object.fromEntries(dims.value.map((d, i) => [d.key, i])))
-const valueNames = { level: v => levelNames[v] || v, factor: reasonName, proof: v => ({ strongbox: 'StrongBox 硬件证明', tee: 'TEE 硬件证明', signature_only: '仅签名（无硬件证明）' })[v] || v }
+const valueNames = { level: v => levelNames[v] || v, factor: reasonName, proof: v => ({ strongbox: 'StrongBox 硬件证明', tee: 'TEE 硬件证明', app_attest: 'App Attest 证明', signature_only: '仅签名（无硬件证明）' })[v] || v }
 const label = (dim, v) => (valueNames[dim] ? valueNames[dim](v) : v)
 
 // Rows matching every filter except `skip` (crossfilter: a card is counted

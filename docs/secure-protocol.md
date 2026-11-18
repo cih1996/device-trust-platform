@@ -62,3 +62,23 @@ xollvm v0.12.0 / LLVM22 实际编译四种 ABI。核心函数标注字符串加�
 被控制设备仍可能在加密前读数据或调用合法密钥。混淆提高分析成本，不能承诺永不可抓包、逆向或绝对防伪。设备证明、业务认证、限额与处置需要共同使用。
 
 依据：[Android 密钥证明](https://developer.android.com/privacy-and-security/security-key-attestation)、[AOSP 格式](https://source.android.com/docs/security/features/keystore/attestation)、[Google 根](https://android.googleapis.com/attestation/root)、[撤销状态](https://android.googleapis.com/attestation/status)、[xollvm](https://github.com/und3ath/xollvm/releases/tag/v0.12.0)。
+
+## iOS（App Attest）
+
+iOS 沿用同一帧格式，签名密钥为 Secure Enclave P-256，keyId 同为 SPKI 的 SHA-256。
+
+注册（类型 1）载荷：
+
+```json
+{"platform":"ios","publicKey":"<SPKI base64>","appAttest":{"keyId":"<App Attest keyId base64>","attestation":"<CBOR base64>"}}
+```
+
+App Attest 不可用（模拟器、系统不支持）时以 `attestationError` 代替 `appAttest`，处理方式与 Android 相同。
+
+- attestKey 的 clientDataHash = SHA256("device-trust/appattest/v1" ‖ 挑战 nonce ‖ SPKI)。
+- 服务端校验：苹果 App Attestation 根（内置）、nonce 扩展 1.2.840.113635.100.8.2、凭证公钥摘要 = keyId、rpIdHash = SHA256(后台配置的 TeamID.BundleID)、计数器为 0、aaguid（开发环境需后台允许）、credentialId = keyId。
+- 通过后 proof.level 为 `app_attest`，记录 appIdentity 与 environment。
+
+报告（类型 2）载荷在 `appAttest` 字段携带断言（CBOR base64），generateAssertion 的 clientDataHash = SHA256("device-trust/assertion/v1" ‖ 挑战 nonce ‖ keyId 原始 32 字节)。服务端验证断言签名、rpIdHash，并要求计数器严格递增（同一挑战的相同重试除外）。计数回退记为 `counter_replay`（app_attest_counter_replay，60 分），断言无效记为 `assertion_invalid`（40 分）；要求硬件证明的应用直接拒绝。报告包名可以是后台配置的任一 iOS Bundle ID。
+
+依据：[App Attest 服务端校验](https://developer.apple.com/documentation/devicecheck/validating-apps-that-connect-to-your-server)。
