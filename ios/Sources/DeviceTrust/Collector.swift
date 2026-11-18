@@ -17,7 +17,7 @@ enum Collector {
         s.available("memory", ["totalBytes": ProcessInfo.processInfo.physicalMemory])
         s.available("locale", ["language": Locale.preferredLanguages.first ?? "", "region": Locale.current.regionCode ?? "",
                                "timeZone": TimeZone.current.identifier])
-        await MainActor.run { foreground(&s) }
+        s.merge(await MainActor.run { foreground() })
         application(&s)
         runtime(&s)
         network(&s)
@@ -36,7 +36,8 @@ enum Collector {
     }
 
     @MainActor
-    private static func foreground(_ s: inout Signals) {
+    private static func foreground() -> Signals {
+        var s = Signals()
         let device = UIDevice.current
         s.available("osInfo", ["system": device.systemName, "release": device.systemVersion])
         if let vendor = device.identifierForVendor { s.available("vendorId", vendor.uuidString) } else { s.status("vendorId", "unavailable", "device locked") }
@@ -60,6 +61,7 @@ enum Collector {
                                          "guidedAccess": UIAccessibility.isGuidedAccessEnabled])
         s.available("peripherals", ["keyboard": GCKeyboard.coalesced != nil, "mice": GCMouse.mice().count,
                                     "controllers": GCController.controllers().count])
+        return s
     }
 
     private static func application(_ s: inout Signals) {
@@ -114,8 +116,9 @@ enum Collector {
     }
 }
 
-struct Signals {
+struct Signals: @unchecked Sendable {
     private(set) var values: [String: Any] = [:]
+    mutating func merge(_ other: Signals) { values.merge(other.values) { _, new in new } }
     mutating func available(_ name: String, _ value: Any) { values[name] = ["status": "available", "value": value] }
     mutating func status(_ name: String, _ status: String, _ reason: String) { values[name] = ["status": status, "reason": reason] }
 }
