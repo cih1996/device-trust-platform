@@ -21,11 +21,15 @@ import java.util.HashMap;
  * Sessions and screens are counted automatically once the SDK is initialized;
  * touches arrive through {@link TouchAudit#record} from dispatchTouchEvent.
  * Single-activity apps call {@link #screen()} when the visible page changes.
+ * Pending statistics are saved whenever the app leaves the foreground, so a
+ * process the system kills in the background loses nothing.
  */
 public final class BehaviorAudit {
     private BehaviorAudit(){}
     private static final int GRID_X=8,GRID_Y=16;
     private static boolean attached;
+    private static android.content.SharedPreferences prefs;
+    private static final String PENDING="pending";
     private static long since=System.currentTimeMillis(),foregroundStart;
     private static int started,sessions,screens;
     private static long foregroundMs;
@@ -48,6 +52,13 @@ public final class BehaviorAudit {
     static synchronized void attach(Application app){
         if(attached)return;
         attached=true;
+        prefs=app.getSharedPreferences("dtp_behavior",android.content.Context.MODE_PRIVATE);
+        String saved=prefs.getString(PENDING,null);
+        if(saved!=null){
+            try{restore(new JSONObject(saved));}
+            catch(JSONException e){android.util.Log.e("DeviceTrust","discarding unreadable behaviour statistics",e);}
+            prefs.edit().remove(PENDING).apply();
+        }
         // Initialization usually runs while the app is in front: that session counts.
         android.app.ActivityManager.RunningAppProcessInfo state=new android.app.ActivityManager.RunningAppProcessInfo();
         android.app.ActivityManager.getMyMemoryState(state);
@@ -73,6 +84,7 @@ public final class BehaviorAudit {
             hours[Calendar.getInstance().get(Calendar.HOUR_OF_DAY)]++;
         } else if(!start&&started>0&&--started==0){
             foregroundMs+=now-foregroundStart;
+            save();
         }
     }
 
@@ -125,7 +137,35 @@ public final class BehaviorAudit {
             .put("swipes",new JSONObject().put("count",swipes).put("straightness",swipes==0?0:round(straightness/swipes)).put("speedCv",swipes==0?0:round(speedCv/swipes)));
         since=now;sessions=screens=taps=exactRepeats=intervals=swipes=0;foregroundMs=0;straightness=speedCv=0;
         java.util.Arrays.fill(hours,0);cells.clear();interval.clear();size.clear();pressure.clear();
+        if(prefs!=null)prefs.edit().remove(PENDING).apply();
         return out;
+    }
+
+    /** Writes the pending counters; called when the app leaves the foreground. */
+    private static void save(){
+        if(prefs==null)return;
+        JSONObject s=new JSONObject();
+        try{
+            JSONArray hourly=new JSONArray();for(int h:hours)hourly.put(h);
+            JSONObject grid=new JSONObject();for(java.util.Map.Entry<Integer,Integer> e:cells.entrySet())grid.put(String.valueOf(e.getKey()),e.getValue());
+            s.put("since",since).put("sessions",sessions).put("screens",screens).put("foregroundMs",foregroundMs).put("hours",hourly)
+             .put("taps",taps).put("exactRepeats",exactRepeats).put("intervals",intervals).put("cells",grid)
+             .put("interval",interval.json()).put("size",size.json()).put("pressure",pressure.json())
+             .put("swipes",swipes).put("straightness",straightness).put("speedCv",speedCv);
+        }catch(JSONException e){throw new IllegalStateException(e);}
+        prefs.edit().putString(PENDING,s.toString()).apply();
+    }
+
+    /** Adds counters saved by an earlier process to the current ones. */
+    private static void restore(JSONObject s) throws JSONException {
+        since=Math.min(since,s.getLong("since"));
+        sessions+=s.getInt("sessions");screens+=s.getInt("screens");foregroundMs+=s.getLong("foregroundMs");
+        JSONArray hourly=s.getJSONArray("hours");for(int i=0;i<24&&i<hourly.length();i++)hours[i]+=hourly.getInt(i);
+        taps+=s.getInt("taps");exactRepeats+=s.getInt("exactRepeats");intervals+=s.getInt("intervals");
+        JSONObject grid=s.getJSONObject("cells");
+        for(java.util.Iterator<String> k=grid.keys();k.hasNext();){String key=k.next();Integer cell=Integer.valueOf(key);Integer n=cells.get(cell);cells.put(cell,(n==null?0:n)+grid.getInt(key));}
+        interval.add(s.getJSONArray("interval"));size.add(s.getJSONArray("size"));pressure.add(s.getJSONArray("pressure"));
+        swipes+=s.getInt("swipes");straightness+=s.getDouble("straightness");speedCv+=s.getDouble("speedCv");
     }
 
     private static double round(double v){return Math.round(v*1000)/1000.0;}
@@ -134,6 +174,8 @@ public final class BehaviorAudit {
         private int n;private double sum,sq;
         void add(double v){n++;sum+=v;sq+=v*v;}
         void clear(){n=0;sum=sq=0;}
+        JSONArray json() throws JSONException {return new JSONArray().put(n).put(sum).put(sq);}
+        void add(JSONArray a) throws JSONException {n+=a.getInt(0);sum+=a.getDouble(1);sq+=a.getDouble(2);}
         double mean(){return n==0?0:sum/n;}
         double cv(){if(n<2)return 0;double m=sum/n,var=Math.max(0,sq/n-m*m);return m==0?0:Math.sqrt(var)/m;}
     }

@@ -3,8 +3,10 @@ import UIKit
 /// Usage statistics for the behaviour profile, matching the Android SDK:
 /// sessions, screens, active hours and the "feel" of taps and swipes. Only
 /// aggregates since the previous report are kept and uploaded, never
-/// coordinates, paths or screen content.
+/// coordinates, paths or screen content. Pending statistics are saved when
+/// the app enters the background, so a process the system kills loses nothing.
 enum Behavior {
+    private static let pendingKey = "dtp.behavior.pending"
     private static let lock = NSLock()
     private static var observing = false
     private static var since = Date(), foregroundStart: TimeInterval?
@@ -21,6 +23,7 @@ enum Behavior {
     static func observeSessions() {
         guard !observing else { return }
         observing = true
+        restore()
         let center = NotificationCenter.default
         center.addObserver(forName: UIApplication.didBecomeActiveNotification, object: nil, queue: .main) { _ in begin() }
         center.addObserver(forName: UIApplication.didEnterBackgroundNotification, object: nil, queue: .main) { _ in end() }
@@ -40,6 +43,37 @@ enum Behavior {
         guard let start = foregroundStart else { return }
         foregroundMs += (ProcessInfo.processInfo.systemUptime - start) * 1000
         foregroundStart = nil
+        save()
+    }
+
+    /// Counters that outlive the process between reports.
+    private struct Pending: Codable {
+        var since: Date, sessions: Int, screens: Int, foregroundMs: Double, hours: [Int]
+        var taps: Int, exactRepeats: Int, intervals: Int, cells: [Int: Int]
+        var interval: Stats, size: Stats, pressure: Stats
+        var swipes: Int, straightness: Double, speedCv: Double
+    }
+
+    /// Called with the lock held.
+    private static func save() {
+        let pending = Pending(since: since, sessions: sessions, screens: screens, foregroundMs: foregroundMs, hours: hours, taps: taps,
+                              exactRepeats: exactRepeats, intervals: intervals, cells: cells, interval: interval, size: size,
+                              pressure: pressure, swipes: swipes, straightness: straightness, speedCv: speedCv)
+        UserDefaults.standard.set(try? JSONEncoder().encode(pending), forKey: pendingKey)
+    }
+
+    private static func restore() {
+        lock.lock(); defer { lock.unlock() }
+        guard let data = UserDefaults.standard.data(forKey: pendingKey) else { return }
+        UserDefaults.standard.removeObject(forKey: pendingKey)
+        guard let p = try? JSONDecoder().decode(Pending.self, from: data) else { return }
+        since = min(since, p.since)
+        sessions += p.sessions; screens += p.screens; foregroundMs += p.foregroundMs
+        for (i, n) in p.hours.prefix(24).enumerated() { hours[i] += n }
+        taps += p.taps; exactRepeats += p.exactRepeats; intervals += p.intervals
+        cells.merge(p.cells, uniquingKeysWith: +)
+        interval.merge(p.interval); size.merge(p.size); pressure.merge(p.pressure)
+        swipes += p.swipes; straightness += p.straightness; speedCv += p.speedCv
     }
 
     static func screen() {
@@ -93,14 +127,16 @@ enum Behavior {
         foregroundMs = 0; straightness = 0; speedCv = 0
         hours = [Int](repeating: 0, count: 24)
         cells = [:]; interval = Stats(); size = Stats(); pressure = Stats()
+        UserDefaults.standard.removeObject(forKey: pendingKey)
         return out
     }
 
     private static func round(_ v: Double) -> Double { (v * 1000).rounded() / 1000 }
 
-    struct Stats {
+    struct Stats: Codable {
         private var n = 0, sum = 0.0, sq = 0.0
         mutating func add(_ v: Double) { n += 1; sum += v; sq += v * v }
+        mutating func merge(_ o: Stats) { n += o.n; sum += o.sum; sq += o.sq }
         var mean: Double { n == 0 ? 0 : sum / Double(n) }
         var cv: Double {
             guard n >= 2, sum != 0 else { return 0 }
