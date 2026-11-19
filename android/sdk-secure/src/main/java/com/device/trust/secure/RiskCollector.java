@@ -55,6 +55,7 @@ final class RiskCollector {
             .put("services",services).put("configured",configured));
 
         put(signals,"automation",new JSONObject().put("monkey",ActivityManager.isUserAMonkey()).put("touches",TouchAudit.snapshot()));
+        put(signals,"behavior",BehaviorAudit.snapshot());
 
         JSONArray classes=new JSONArray(),frames=new JSONArray();
         for(String name:HOOK_CLASSES){

@@ -16,7 +16,7 @@ import AllItems from '../components/AllItems.vue'
 
 const packageNames = { android: '系统框架', 'com.android.settings': '系统设置', 'com.android.systemui': '系统界面', 'com.miui.securitycenter': '小米安全中心', 'com.miui.home': '小米桌面', 'com.xiaomi.market': '小米应用商店', 'com.huawei.hwid': '华为移动服务', 'com.huawei.appmarket': '华为应用市场', 'com.heytap.market': '欢太软件商店', 'com.oplus.safecenter': '系统安全中心', 'com.bbk.appstore': 'vivo 应用商店', 'com.bbk.launcher2': 'vivo 桌面', 'com.hihonor.appmarket': '荣耀应用市场' }
 const sensorTypes = { 1: '加速度', 2: '磁场', 3: '方向', 4: '陀螺仪', 5: '光线', 8: '距离', 9: '重力', 10: '线性加速度', 11: '旋转矢量', 14: '未校准磁场', 15: '游戏旋转', 16: '未校准陀螺仪', 17: '显著运动', 18: '步行检测', 19: '计步器', 20: '地磁旋转', 22: '倾斜检测', 27: '设备方向', 29: '静止检测', 30: '运动检测', 35: '未校准加速度' }
-const tabs = { risk: '风险分析', events: '业务事件', hardware: '设备参数', apps: '应用与签名', network: '网络与定位', history: '关联与轨迹', items: '全部条目', raw: '原始数据' }
+const tabs = { risk: '风险分析', events: '业务事件', behavior: '行为画像', hardware: '设备参数', apps: '应用与签名', network: '网络与定位', history: '关联与轨迹', items: '全部条目', raw: '原始数据' }
 
 const data = ref(null)
 const busy = ref(false)
@@ -32,6 +32,27 @@ async function load() {
 watch([() => route.id, revision], load, { immediate: true })
 
 const p = computed(() => data.value?.profile)
+// Behaviour profile: usage totals since first seen, observed only (not scored yet).
+const b = computed(() => data.value?.behavior)
+const hourMax = computed(() => Math.max(1, ...(b.value?.hours || [])))
+const recentDays = computed(() => {
+  const active = new Set(b.value?.days || [])
+  const out = []
+  for (let i = 29; i >= 0; i--) {
+    const d = new Date(Date.now() + 8 * 3600e3 - i * 86400e3).toISOString().slice(0, 10)
+    out.push({ day: d, on: active.has(d) })
+  }
+  return out
+})
+const feel = computed(() => !b.value ? [] : [
+  ['点击间隔', b.value.taps ? Math.round(b.value.tapIntervalMs) + ' ms' : '—', '连续点击之间的平均间隔'],
+  ['点击节奏波动', b.value.taps ? b.value.tapIntervalCv : '—', '越接近 0 越像定时器；真人点击节奏起伏明显'],
+  ['最常点位置占比', b.value.taps ? Math.round(b.value.topCellShare * 100) + '%' : '—', '屏幕分 8×16 格，点击最集中的一格所占比例'],
+  ['坐标完全重复', b.value.taps ? Math.round(b.value.exactRepeat * 100) + '%' : '—', '与上一次点击像素级相同的比例；真人几乎为 0'],
+  ['触摸面积波动', b.value.taps ? b.value.touchSizeCv : '—', '手指接触面积的变化；合成触摸通常恒定'],
+  ['滑动直线度', b.value.swipes ? b.value.straightness : '—', '1 表示笔直；真人滑动带弧度'],
+  ['滑动速度波动', b.value.swipes ? b.value.swipeSpeedCv : '—', '真人滑动有加速和减速；脚本多为匀速'],
+])
 const r = computed(() => p.value?.latestReport)
 const observed = (report, key) => (report?.signals?.[key]?.status === 'available' ? report.signals[key].value : null)
 const sig = key => observed(r.value, key)
@@ -274,6 +295,41 @@ async function revoke() {
         <div v-if="!data.events.length" class="empty">该设备还没有业务事件</div>
       </div>
     </section>
+
+    <template v-if="tab === 'behavior'">
+      <section v-if="!b" class="card"><div class="card-body muted">暂无使用行为数据。SDK 新版本会在每次上报时附带会话与点击统计。</div></section>
+      <template v-else>
+        <div class="grid g-kpi" style="margin-bottom:16px">
+          <div class="card tile"><div class="label">活跃天数</div><div class="value">{{ b.activeDays }}</div></div>
+          <div class="card tile"><div class="label">近 7 天活跃</div><div class="value">{{ b.activeDays7 }}<small>/ 7</small></div></div>
+          <div class="card tile"><div class="label">会话数</div><div class="value">{{ b.sessions }}</div></div>
+          <div class="card tile"><div class="label">平均会话</div><div class="value">{{ Math.round(b.avgSessionSeconds) }}<small> 秒</small></div></div>
+          <div class="card tile"><div class="label">每次会话页面</div><div class="value">{{ b.screensPerSession }}</div></div>
+          <div class="card tile"><div class="label">点击 / 滑动</div><div class="value">{{ b.taps }}<small> / {{ b.swipes }}</small></div></div>
+        </div>
+        <div class="grid g-2" style="margin-bottom:16px">
+          <section class="card">
+            <div class="card-head"><div><h2>活跃时段</h2><span class="sub">按北京时间统计每次打开 App 的小时</span></div></div>
+            <div class="card-body">
+              <div class="hours">
+                <div v-for="(n, h) in b.hours" :key="h" class="hour" :title="h + ' 点：' + n + ' 次'"><span :style="{ height: (n / hourMax * 100) + '%' }"></span></div>
+              </div>
+              <div class="hours-axis muted"><span>0</span><span>6</span><span>12</span><span>18</span><span>23</span></div>
+            </div>
+          </section>
+          <section class="card">
+            <div class="card-head"><div><h2>近 30 天活跃</h2><span class="sub">首次出现 {{ dateTime(b.firstSeen) }}</span></div></div>
+            <div class="card-body"><div class="days"><span v-for="d in recentDays" :key="d.day" :class="{ on: d.on }" :title="d.day"></span></div></div>
+          </section>
+        </div>
+        <section class="card">
+          <div class="card-head"><div><h2>操作手感</h2><span class="sub">观察阶段，暂不计分</span></div></div>
+          <div class="card-body">
+            <table><tbody><tr v-for="[k, v, note] in feel" :key="k"><td>{{ k }}</td><td><strong>{{ v }}</strong></td><td class="muted">{{ note }}</td></tr></tbody></table>
+          </div>
+        </section>
+      </template>
+    </template>
 
     <template v-if="tab === 'hardware'">
       <div class="grid g-2" style="margin-bottom:16px">

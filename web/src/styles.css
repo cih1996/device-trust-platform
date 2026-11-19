@@ -357,3 +357,12 @@ pre.raw { background: var(--surface-2); padding: 14px; border-radius: 8px; overf
   .identity { grid-template-columns: 1fr; }
   .app-switch select { min-width: 0; }
 }
+
+/* Behaviour profile: active hours and recent active days. */
+.hours { display: grid; grid-template-columns: repeat(24, 1fr); gap: 3px; height: 120px; align-items: end; }
+.hour { height: 100%; display: flex; align-items: flex-end; background: var(--line); border-radius: 3px; overflow: hidden; }
+.hour span { width: 100%; background: var(--accent); border-radius: 3px; min-height: 0; }
+.hours-axis { display: flex; justify-content: space-between; font-size: 12px; margin-top: 6px; }
+.days { display: grid; grid-template-columns: repeat(15, 1fr); gap: 4px; }
+.days span { aspect-ratio: 1; border-radius: 3px; background: var(--line); }
+.days span.on { background: var(--accent); }

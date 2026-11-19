@@ -19,6 +19,7 @@ enum Collector {
                                "timeZone": TimeZone.current.identifier])
         s.merge(await MainActor.run { foreground() })
         application(&s)
+        s.available("behavior", Behavior.snapshot())
         runtime(&s)
         network(&s)
         return ["appId": appId, "installationId": installation, "package": Bundle.main.bundleIdentifier ?? "", "signals": s.values]

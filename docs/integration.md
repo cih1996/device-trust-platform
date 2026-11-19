@@ -266,6 +266,23 @@ SDK 0.7.4 起上报 `lan`：Wi-Fi / 有线网络（包括被系统标成移动�
 - 减免在每次上报时计算，记录在这份报告上。减免以 `good_standing`（负分）出现在 factors 里，verdict 返回 `recovery: {goodDays, discount}`；业务事件也按减免后的分数判定。
 - 平台没有后台巡检任务，设备只要有上报就会刷新状态。建议 App 冷启动时登记一次，回到前台时如果距上次上报超过 30 分钟，再上报一次。
 
+## 6.5 使用行为统计（行为画像）
+
+SDK 在每次上报时附带上一次上报以来的使用统计 `behavior`，平台按设备累计成行为画像，在工作台设备详情的“行为画像”页查看。只上报统计值，不上报坐标、轨迹或页面内容。
+
+| 统计 | 内容 |
+|---|---|
+| 会话 | 打开次数、在前台的时长、浏览页面数、打开时所在的小时 |
+| 点击 | 次数、平均间隔与节奏波动、最集中位置占比、坐标完全重复比例、接触面积波动 |
+| 滑动 | 次数、直线度、速度波动 |
+
+接入：
+
+- Android：会话和 Activity 切换由 SDK 自动统计；点击和滑动来自第 3 节已接入的 `TouchAudit.record(event)`。单 Activity 的 App（Fragment、Compose、Flutter 等）在页面切换时调用 `BehaviorAudit.screen()`。
+- iOS：启动后调用 `DeviceTrust.attachTouchMonitor(to: window)`，页面切换时调用 `DeviceTrust.screen()`。监听不拦截、不延迟任何手势。
+
+当前为观察阶段，行为统计不计分；积累真实数据校准后再上线“真人度”规则。
+
 ## 7. 其他语言示例
 
 Go 可以直接使用 `pkg/businessguard`：

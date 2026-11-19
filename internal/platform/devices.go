@@ -321,5 +321,10 @@ func (s *Server) deviceDetails(w http.ResponseWriter, r *http.Request, id string
 		}
 		shared = sharedRisk(selected.AppID, selected.LinkID, teams, allReports, allEvents)
 	}
-	reply(w, 200, map[string]any{"shared": shared, "profile": selected, "reports": history, "events": rows, "accounts": accounts, "trend": trend, "ips": ipList, "linked": linked, "lan": lan, "keys": keys})
+	behavior, err := s.behaviorSummary(selected.AppID, selected.DeviceID)
+	if err != nil {
+		fail(w, 500, err)
+		return
+	}
+	reply(w, 200, map[string]any{"shared": shared, "profile": selected, "reports": history, "events": rows, "accounts": accounts, "trend": trend, "ips": ipList, "linked": linked, "lan": lan, "keys": keys, "behavior": behavior})
 }

@@ -1,4 +1,5 @@
 import Foundation
+import UIKit
 
 /// Device registration and signed risk reports for the DeviceTrust platform.
 ///
@@ -36,8 +37,20 @@ public enum DeviceTrust {
     /// every cold start once the user accepted the privacy policy.
     public static func initialize(config: Config, consent: Bool) async throws -> Result {
         guard consent else { throw DeviceTrustError.consentRequired }
+        await Behavior.observeSessions()
         return try await Serial.shared.run { try await register(config: config) }
     }
+
+    /// Watches taps and swipes on a window for the behaviour profile (counts
+    /// and timing only). Call once with the key window after launch.
+    @MainActor
+    public static func attachTouchMonitor(to window: UIWindow) {
+        guard !(window.gestureRecognizers ?? []).contains(where: { $0 is TouchMonitor }) else { return }
+        window.addGestureRecognizer(TouchMonitor(target: nil, action: nil))
+    }
+
+    /// Counts a page view; call when the visible page changes.
+    public static func screen() { Behavior.screen() }
 
     private static func register(config: Config) async throws -> Result {
         let report = try await Collector.collect(appId: config.appId)

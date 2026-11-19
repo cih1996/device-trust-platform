@@ -232,7 +232,13 @@ struct DeviceView: View {
             .navigationTitle("知衡 · 风控体验")
         }
         .navigationViewStyle(.stack)
-        .onAppear { if model.consent && model.score == nil { model.register() } }
+        .onAppear {
+            DeviceTrust.screen()
+            if let window = UIApplication.shared.connectedScenes.compactMap({ ($0 as? UIWindowScene)?.keyWindow }).first {
+                DeviceTrust.attachTouchMonitor(to: window)
+            }
+            if model.consent && model.score == nil { model.register() }
+        }
     }
 
     private func levelName(_ level: String) -> String { level == "high" ? "高风险" : level == "medium" ? "中风险" : "低风险" }
@@ -263,6 +269,7 @@ struct BusinessView: View {
             .navigationTitle("业务体验")
         }
         .navigationViewStyle(.stack)
+        .onAppear { DeviceTrust.screen() }
     }
 }
 
@@ -284,5 +291,6 @@ struct AboutView: View {
             .navigationTitle("说明")
         }
         .navigationViewStyle(.stack)
+        .onAppear { DeviceTrust.screen() }
     }
 }
